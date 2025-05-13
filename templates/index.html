@@ -152,6 +152,27 @@
   <h1 id="welcome">What can I help with?</h1>
 
   <div id="chat"></div>
+  
+  <script>
+    // Array of welcome messages
+    const welcomeMessages = [
+      "I'm better than EdChat!",
+      "Well... well... well...",
+      "Welcome to NightAtlas AI",
+      "What do we have here?",
+      "How's school?",
+      "How can I assist you today?",
+      "NightAtlas at your service",
+      "Ready when you are",
+    ];
+    
+    // Choose a random welcome message on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      const welcomeElement = document.getElementById('welcome');
+      const randomIndex = Math.floor(Math.random() * welcomeMessages.length);
+      welcomeElement.textContent = welcomeMessages[randomIndex];
+    });
+  </script>
 
   <div id="inputWrapper" class="input-wrapper">
     <div class="input-container">
@@ -189,27 +210,31 @@
         });
       });
     }
-  
+  </script>
+  <script>
     // Auto-resize textarea as user types
-    const textarea = document.getElementById('messageInput');
-    
-    textarea.addEventListener('input', function() {
-      this.style.height = 'auto';
-      this.style.height = (this.scrollHeight) + 'px';
-    });
-    
-    // Handle Enter key (send with Enter, newline with Shift+Enter)
-    textarea.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault(); // Prevent default Enter behavior
-        sendMessage();
-      }
-    });
+    function setupTextarea() {
+      const textarea = document.getElementById('messageInput');
+      
+      textarea.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
+      });
+      
+      // Handle Enter key (send with Enter, newline with Shift+Enter)
+      textarea.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault(); // Prevent default Enter behavior
+          sendMessage();
+        }
+      });
+    }
     
     // Run after DOM is loaded
     window.addEventListener("DOMContentLoaded", () => {
       addCopyButtons();
       Prism.highlightAll(); // highlight all code
+      setupTextarea();
     });
   </script>
   
