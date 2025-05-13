@@ -1,15 +1,17 @@
 from flask import Flask, request, render_template, jsonify
-import openai
 import os
-
+from openai import OpenAI
 from dotenv import load_dotenv
-load_dotenv()  # Only for local development
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Load .env locally
+load_dotenv()
+
+# Create OpenAI client instance
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
 
-# Read system prompt from file
+# Load the system prompt from a file
 with open("prompt.txt", "r", encoding="utf-8") as f:
     system_prompt = f.read().strip()
 
@@ -27,17 +29,16 @@ def chat():
     ]
 
     try:
-        # New method for OpenAI SDK v1.0+
-        response = openai.ChatCompletion.create(
+        # Use client.chat.completions.create instead of openai.ChatCompletion.create
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=messages
         )
-
-        reply = response.choices[0].message["content"]
+        reply = response.choices[0].message.content
         return jsonify({"reply": reply})
 
     except Exception as e:
-        return jsonify({"reply": f"Error: {e}"}), 500
+        return jsonify({"reply": f"Error: {str(e)}"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
