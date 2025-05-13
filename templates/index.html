@@ -16,171 +16,189 @@
 
 
   <style>
-body {
-  margin: 0;
-  padding: 0;
-  font-family: "Inter", sans-serif;
-  background-color: #1a1a1a; /* Updated background color for better readability */
-  color: #ffffffcc; /* Adjusted text color for better contrast */
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Inter", sans-serif;
+      background-color: #0f0f0f;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
 
-h1#welcome {
-  text-align: center;
-  font-size: 2rem;
-  margin-top: 10vh; /* Improved spacing for the welcome header */
-  transition: opacity 0.3s ease;
-}
+    h1#welcome {
+      text-align: center;
+      font-size: 2rem;
+      margin-top: 20vh;
+      color: #ffffffcc;
+      transition: opacity 0.3s ease;
+    }
 
-#chat {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 70px; /* Adjusted margin for input box visibility */
-}
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: none;
+      flex-direction: column;
+      margin-bottom: 90px; /* Ensure space for input box */
+    }
 
-.message {
-  margin: 0.8rem 0; /* Increased margin between messages for better separation */
-  padding: 0.75rem 1rem;
-  border-radius: 20px;
-  max-width: 70%;
-  word-wrap: break-word;
-}
+    .message {
+      margin: 0.5rem 0;
+      padding: 0.75rem 1rem;
+      border-radius: 20px;
+      max-width: 70%;
+      word-wrap: break-word;
+    }
 
-.user {
-  background: #4F57E2;
-  align-self: flex-end;
-}
+    .user {
+      background: #4F57E2;
+      align-self: flex-end;
+    }
 
-.bot {
-  background: #1a1a1a;
-  align-self: flex-start;
-}
+    .bot {
+      background: #1a1a1a;
+      align-self: flex-start;
+    }
 
-.input-wrapper {
-  position: fixed; /* Use fixed position for input to ensure it stays visible */
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  transition: all 0.5s ease;
-  width: 100%;
-  display: flex;
-  justify-content: center;
-}
+    .input-wrapper {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      transition: all 0.5s ease;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      padding: 0 1rem;
+    }
 
-.input-container {
-  background: #1a1a1a;
-  padding: 1rem;
-  display: flex;
-  align-items: center; /* Adjusted alignment for the input box */
-  border-top: 1px solid #333;
-  border-radius: 20px;
-  width: 80%;
-  max-width: 700px;
-}
+    .input-wrapper.moved {
+      top: auto;
+      bottom: 20px;
+      transform: translateX(-50%);
+    }
 
-.input-container textarea {
-  flex: 1;
-  border: none;
-  background: transparent;
-  color: white;
-  font-size: 1rem;
-  padding: 0.6rem;
-  outline: none;
-  resize: none;
-  line-height: 1.4;
-  font-family: inherit;
-}
+    .input-container {
+      background: #1a1a1a;
+      padding: 1rem;
+      display: flex;
+      align-items: flex-end; /* Align to bottom for vertical alignment with textarea */
+      border-top: 1px solid #333;
+      border-radius: 20px;
+      width: 80%;
+      max-width: 700px;
+    }
 
-.input-container button {
-  background: #4F57E2;
-  border: none;
-  color: white;
-  padding: 0.6rem 1.2rem;
-  border-radius: 50px;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 0.9rem;
-  margin-left: 0.5rem;
-}
+    .input-container textarea {
+      flex: 1;
+      border: none;
+      background: transparent;
+      color: white;
+      font-size: 1rem;
+      padding: 0.6rem;
+      outline: none;
+      resize: none;
+      overflow-y: auto;
+      min-height: 20px;
+      max-height: 150px;
+      line-height: 1.4;
+      font-family: inherit;
+    }
 
-.blinking-cursor {
-  display: inline-block;
-  width: 8px;
-  height: 1.2em;
-  background-color: white;
-  animation: blink 1s step-end infinite;
-}
+    .input-container button {
+      background: #4F57E2;
+      border: none;
+      color: white;
+      padding: 0.6rem 1.2rem;
+      border-radius: 50px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.9rem;
+      margin-left: 0.5rem;
+      height: fit-content;
+    }
+    
+    .blinking-cursor {
+      display: inline-block;
+      width: 8px;
+      height: 1.2em;
+      background-color: white;
+      animation: blink 1s step-end infinite;
+    }
 
-@keyframes blink {
-  50% {
-    background-color: transparent;
-  }
-}
-
-/* Additional styling for message content */
-.message p {
-  margin: 0.5em 0; /* Adjusted paragraph margin for better spacing */
-}
-
-.message pre {
-  background: #1a1a1a;
-  border-radius: 8px;
-  padding: 12px;
-  margin: 10px 0;
-  overflow-x: auto;
-}
-
-.message code {
-  font-family: 'Courier New', monospace;
-  font-size: 0.9em;
-}
-
-.message :not(pre) > code {
-  background: #333;
-  padding: 2px 5px;
-  border-radius: 4px;
-}
-
-.message ul, .message ol {
-  margin-top: 0.5em;
-  margin-bottom: 0.5em;
-  padding-left: 1.5em;
-}
-
-.message a {
-  color: #7b83ff;
-  text-decoration: none;
-}
-
-.message a:hover {
-  text-decoration: underline;
-}
-
-.message h1, .message h2, .message h3, .message h4 {
-  margin: 1em 0 0.5em; /* Adjusted heading margins for better readability */
-}
-
-.message table {
-  border-collapse: collapse;
-  margin: 1em 0;
-  overflow-x: auto;
-  display: block;
-}
-
-.message th, .message td {
-  border: 1px solid #444;
-  padding: 8px 12px;
-}
-
-.message th {
-  background-color: #222;
-}
-
+    @keyframes blink {
+      50% {
+        background-color: transparent;
+      }
+    }
+    
+        /* Additional styling for message content */
+    .message p {
+      margin: 0 0 0.8em 0;
+    }
+    
+    .message p:last-child {
+      margin-bottom: 0;
+    }
+    
+    .message pre {
+      background: #1a1a1a;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 10px 0;
+      overflow-x: auto;
+    }
+    
+    .message code {
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+    }
+    
+    .message :not(pre) > code {
+      background: #333;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+    
+    .message ul, .message ol {
+      margin-top: 0.5em;
+      margin-bottom: 0.5em;
+      padding-left: 1.5em;
+    }
+    
+    .message a {
+      color: #7b83ff;
+      text-decoration: none;
+    }
+    
+    .message a:hover {
+      text-decoration: underline;
+    }
+    
+    .message h1, .message h2, .message h3, .message h4 {
+      margin-top: 1em;
+      margin-bottom: 0.5em;
+    }
+    
+    .message table {
+      border-collapse: collapse;
+      margin: 1em 0;
+      overflow-x: auto;
+      display: block;
+    }
+    
+    .message th, .message td {
+      border: 1px solid #444;
+      padding: 8px 12px;
+    }
+    
+    .message th {
+      background-color: #222;
+    }
     
   </style>
 </head>
