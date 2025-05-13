@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NightAtlas AI</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -152,10 +153,18 @@
       const chat = document.getElementById("chat");
       const msg = document.createElement("div");
       msg.classList.add("message", sender);
-      msg.textContent = text;
+
+      if (sender === "bot") {
+        // Render Markdown to HTML
+        msg.innerHTML = marked.parse(text);
+      } else {
+        msg.textContent = text;
+      }
+
       chat.appendChild(msg);
       chat.scrollTop = chat.scrollHeight;
     }
+
   </script>
 </body>
 </html>
