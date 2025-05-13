@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import time
 import tiktoken
 
-# Load .env locally
+# Load environment variables from .env file
 load_dotenv()
 
 # Create OpenAI client instance
@@ -27,7 +27,8 @@ reset_time = 10800  # Reset counter every 3 hours (10800 seconds)
 MAX_TOKENS = 2500  # Adjust based on your model's context window
 
 # Initialize tokenizer for the model
-tokenizer = tiktoken.encoding_for_model("gpt-4.1-mini")
+# Since tiktoken doesn't recognize 'gpt-4.1-mini', we use 'o200k_base' encoding
+tokenizer = tiktoken.get_encoding("o200k_base")
 
 def num_tokens_from_messages(messages):
     """Calculate the number of tokens in a message list"""
@@ -73,7 +74,7 @@ def chat():
     try:
         # Make API call with conversation history
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4.1-mini",
             messages=messages
         )
         
