@@ -9,6 +9,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
 
+# Read system prompt from file
 with open("prompt.txt", "r", encoding="utf-8") as f:
     system_prompt = f.read().strip()
 
@@ -19,23 +20,25 @@ def home():
 @app.route("/chat", methods=["POST"])
 def chat():
     user_input = request.json.get("message", "")
-    
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_input}
     ]
 
     try:
+        # New method for OpenAI SDK v1.0+
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=messages
         )
-        reply = response["choices"][0]["message"]["content"]
+
+        reply = response.choices[0].message["content"]
         return jsonify({"reply": reply})
+
     except Exception as e:
         return jsonify({"reply": f"Error: {e}"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
-
