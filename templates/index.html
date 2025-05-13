@@ -15,6 +15,7 @@
       flex-direction: column;
       height: 100vh;
       overflow: hidden;
+      position: relative;
     }
 
     h1#welcome {
@@ -50,12 +51,33 @@
       align-self: flex-start;
     }
 
+    .input-wrapper {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      transition: all 0.5s ease;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      padding: 0 1rem;
+    }
+
+    .input-wrapper.moved {
+      top: auto;
+      bottom: 20px;
+      transform: translateX(-50%);
+    }
+
     .input-container {
       background: #1a1a1a;
       padding: 1rem;
       display: flex;
       align-items: center;
       border-top: 1px solid #333;
+      border-radius: 20px;
+      width: 80%;
+      max-width: 700px;
     }
 
     .input-container input {
@@ -87,9 +109,11 @@
 
   <div id="chat"></div>
 
-  <div class="input-container">
-    <input id="messageInput" type="text" placeholder="Ask anything..." />
-    <button onclick="sendMessage()">Send</button>
+  <div id="inputWrapper" class="input-wrapper">
+    <div class="input-container">
+      <input id="messageInput" type="text" placeholder="Ask anything..." />
+      <button onclick="sendMessage()">Send</button>
+    </div>
   </div>
 
   <script>
@@ -99,6 +123,7 @@
       const input = document.getElementById("messageInput");
       const chat = document.getElementById("chat");
       const welcome = document.getElementById("welcome");
+      const inputWrapper = document.getElementById("inputWrapper");
 
       const message = input.value.trim();
       if (!message) return;
@@ -107,19 +132,18 @@
         hasStarted = true;
         welcome.style.display = "none";
         chat.style.display = "flex";
+        inputWrapper.classList.add("moved");
       }
 
       appendMessage(message, "user");
-
-      // Clear input
       input.value = "";
 
-      // Get response
       const res = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
+
       const data = await res.json();
       appendMessage(data.reply, "bot");
     }
