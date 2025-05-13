@@ -1,4 +1,4 @@
-flask
+Flask>=2.0.0
 openai>=1.0.0
 python-dotenv
 flask-login
