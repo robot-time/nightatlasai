@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NightAtlas AI</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/prismjs/themes/prism-tomorrow.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/prismjs/prism.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs/components/prism-javascript.min.js"></script>
+
+
   <style>
     body {
       margin: 0;
@@ -116,6 +122,44 @@
       <button onclick="sendMessage()">Send</button>
     </div>
   </div>
+  <script>
+    // Add copy buttons to all code blocks
+    function addCopyButtons() {
+      document.querySelectorAll("pre > code").forEach((codeBlock) => {
+        const button = document.createElement("button");
+        button.textContent = "Copy";
+        button.style.cssText = `
+          position: absolute;
+          right: 10px;
+          top: 10px;
+          background: #4F57E2;
+          color: white;
+          border: none;
+          padding: 5px 10px;
+          border-radius: 5px;
+          font-size: 0.8rem;
+          cursor: pointer;
+        `;
+  
+        const pre = codeBlock.parentNode;
+        pre.style.position = "relative";
+        pre.appendChild(button);
+  
+        button.addEventListener("click", () => {
+          navigator.clipboard.writeText(codeBlock.textContent);
+          button.textContent = "Copied!";
+          setTimeout(() => (button.textContent = "Copy"), 1500);
+        });
+      });
+    }
+  
+    // Run after DOM is loaded
+    window.addEventListener("DOMContentLoaded", () => {
+      addCopyButtons();
+      Prism.highlightAll(); // highlight all code
+    });
+  </script>
+  
 
   <script>
     let hasStarted = false;
@@ -153,17 +197,12 @@
       const chat = document.getElementById("chat");
       const msg = document.createElement("div");
       msg.classList.add("message", sender);
-
-      if (sender === "bot") {
-        // Render Markdown to HTML
-        msg.innerHTML = marked.parse(text);
-      } else {
-        msg.textContent = text;
-      }
-
+      msg.innerHTML = marked.parse(text); // <- use marked.js to render markdown
       chat.appendChild(msg);
+      Prism.highlightAll(); // for code highlighting
       chat.scrollTop = chat.scrollHeight;
     }
+
 
   </script>
 </body>
