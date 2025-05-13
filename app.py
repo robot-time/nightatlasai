@@ -27,7 +27,7 @@ reset_time = 10800  # Reset counter every 3 hours (10800 seconds)
 MAX_TOKENS = 2500  # Adjust based on your model's context window
 
 # Initialize tokenizer for the model
-tokenizer = tiktoken.encoding_for_model("gpt-4.1-mini-2025-04-14")
+tokenizer = tiktoken.encoding_for_model("gpt-4.1-mini")
 
 def num_tokens_from_messages(messages):
     """Calculate the number of tokens in a message list"""
