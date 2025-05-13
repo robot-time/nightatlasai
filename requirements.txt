@@ -1,3 +1,7 @@
 flask
 openai>=1.0.0
 python-dotenv
+flask-login
+flask-sqlalchemy
+flask-migrate
+werkzeug
