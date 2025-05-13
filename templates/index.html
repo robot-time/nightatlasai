@@ -4,11 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NightAtlas AI</title>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/prismjs/themes/prism-tomorrow.css" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/prismjs/prism.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs/components/prism-python.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-java.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-cpp.min.js"></script>
 
 
   <style>
@@ -132,19 +136,70 @@
       }
     }
     
-    /* Style for code blocks */
-    pre {
-      position: relative;
-      background: #1e1e1e;
-      border-radius: 6px;
-      padding: 1rem;
-      margin: 1rem 0;
+        /* Additional styling for message content */
+    .message p {
+      margin: 0 0 0.8em 0;
+    }
+    
+    .message p:last-child {
+      margin-bottom: 0;
+    }
+    
+    .message pre {
+      background: #1a1a1a;
+      border-radius: 8px;
+      padding: 12px;
+      margin: 10px 0;
       overflow-x: auto;
     }
     
-    code {
+    .message code {
       font-family: 'Courier New', monospace;
+      font-size: 0.9em;
     }
+    
+    .message :not(pre) > code {
+      background: #333;
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+    
+    .message ul, .message ol {
+      margin-top: 0.5em;
+      margin-bottom: 0.5em;
+      padding-left: 1.5em;
+    }
+    
+    .message a {
+      color: #7b83ff;
+      text-decoration: none;
+    }
+    
+    .message a:hover {
+      text-decoration: underline;
+    }
+    
+    .message h1, .message h2, .message h3, .message h4 {
+      margin-top: 1em;
+      margin-bottom: 0.5em;
+    }
+    
+    .message table {
+      border-collapse: collapse;
+      margin: 1em 0;
+      overflow-x: auto;
+      display: block;
+    }
+    
+    .message th, .message td {
+      border: 1px solid #444;
+      padding: 8px 12px;
+    }
+    
+    .message th {
+      background-color: #222;
+    }
+    
   </style>
 </head>
 <body>
@@ -165,6 +220,7 @@
       "NightAtlas at your service",
       "Ready when you are",
     ];
+
     
     // Choose a random welcome message on page load
     window.addEventListener('DOMContentLoaded', () => {
@@ -211,7 +267,7 @@
       });
     }
   </script>
-  <script>
+    <script>
     // Auto-resize textarea as user types
     function setupTextarea() {
       const textarea = document.getElementById('messageInput');
@@ -230,10 +286,22 @@
       });
     }
     
-    // Run after DOM is loaded
-    window.addEventListener("DOMContentLoaded", () => {
+    // Configure marked.js options
+    window.addEventListener('DOMContentLoaded', () => {
+      // Configure marked.js to properly handle code blocks
+      marked.setOptions({
+        highlight: function(code, lang) {
+          if (Prism.languages[lang]) {
+            return Prism.highlight(code, Prism.languages[lang], lang);
+          }
+          return code;
+        },
+        breaks: true,   // Convert line breaks to <br>
+        gfm: true,      // GitHub Flavored Markdown
+        headerIds: true // Add ids to headers
+      });
+      
       addCopyButtons();
-      Prism.highlightAll(); // highlight all code
       setupTextarea();
     });
   </script>
@@ -313,6 +381,9 @@
             setTimeout(typeCharacter, typingSpeed);
           } else {
             cursorSpan.remove(); // Remove cursor when done
+            
+            // After typing is complete, process Markdown and code blocks
+            renderFormattedMessage(msg, text);
           }
         }
         
@@ -323,6 +394,48 @@
       }
       
       chat.scrollTop = chat.scrollHeight;
+    }
+    
+    // Function to render markdown and code blocks
+    function renderFormattedMessage(messageElement, text) {
+      // Process the text with marked for Markdown
+      const htmlContent = marked.parse(text);
+      
+      // Replace the text content with HTML content
+      messageElement.innerHTML = htmlContent;
+      
+      // Apply syntax highlighting to code blocks
+      messageElement.querySelectorAll('pre code').forEach((block) => {
+        Prism.highlightElement(block);
+      });
+      
+      // Add copy buttons to code blocks
+      messageElement.querySelectorAll('pre').forEach((pre) => {
+        const button = document.createElement('button');
+        button.textContent = 'Copy';
+        button.style.cssText = `
+          position: absolute;
+          right: 10px;
+          top: 10px;
+          background: #4F57E2;
+          color: white;
+          border: none;
+          padding: 5px 10px;
+          border-radius: 5px;
+          font-size: 0.8rem;
+          cursor: pointer;
+        `;
+        
+        pre.style.position = 'relative';
+        pre.appendChild(button);
+        
+        button.addEventListener('click', () => {
+          const code = pre.querySelector('code');
+          navigator.clipboard.writeText(code.textContent);
+          button.textContent = 'Copied!';
+          setTimeout(() => (button.textContent = 'Copy'), 1500);
+        });
+      });
     }
   </script>
 </body>
