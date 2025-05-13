@@ -108,6 +108,20 @@
       font-size: 0.9rem;
       margin-left: 0.5rem;
     }
+    .blinking-cursor {
+      display: inline-block;
+      width: 8px;
+      height: 1.2em;
+      background-color: white;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% {
+        background-color: transparent;
+      }
+}
+
   </style>
 </head>
 <body>
@@ -183,6 +197,13 @@
       appendMessage(message, "user");
       input.value = "";
 
+      // Temporarily show AI typing...
+      const aiMessage = document.createElement("div");
+      aiMessage.classList.add("message", "bot");
+      aiMessage.textContent = "AI is typing...";  // Placeholder for AI message
+      chat.appendChild(aiMessage);
+      chat.scrollTop = chat.scrollHeight;
+
       const res = await fetch("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -190,18 +211,44 @@
       });
 
       const data = await res.json();
+
+      // Remove "AI is typing..." message and add the real reply
+      aiMessage.remove();
       appendMessage(data.reply, "bot");
     }
+
 
     function appendMessage(text, sender) {
       const chat = document.getElementById("chat");
       const msg = document.createElement("div");
       msg.classList.add("message", sender);
-      msg.innerHTML = marked.parse(text); // <- use marked.js to render markdown
+      
+      // Add a blinking cursor when the AI is "thinking"
+      const cursorSpan = document.createElement("span");
+      cursorSpan.classList.add("blinking-cursor");
+      msg.appendChild(cursorSpan); // Add cursor to message
+      
       chat.appendChild(msg);
-      Prism.highlightAll(); // for code highlighting
       chat.scrollTop = chat.scrollHeight;
+
+      // Typing effect with the cursor animation
+      let index = 0;
+      const typingSpeed = 50; // Adjust to change typing speed
+
+      function typeCharacter() {
+        if (index < text.length) {
+          msg.textContent = text.substring(0, index + 1); // Update message text
+          index++;
+          setTimeout(typeCharacter, typingSpeed);
+        } else {
+          // Remove the blinking cursor once typing is complete
+          cursorSpan.remove();
+        }
+      }
+
+      typeCharacter(); // Start the typing effect
     }
+
 
 
   </script>

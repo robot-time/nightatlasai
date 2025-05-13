@@ -24,7 +24,7 @@ message_limit = 25  # Set your desired message limit here
 reset_time = 10800  # Reset counter every 3 hours (10800 seconds)
 
 # Maximum token limit for conversation context
-MAX_TOKENS = 4000  # Adjust based on your model's context window
+MAX_TOKENS = 2500  # Adjust based on your model's context window
 
 # Initialize tokenizer for the model
 tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
