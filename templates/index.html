@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NightAtlas Chat</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: auto; padding: 2rem; }
+        input, button { padding: 0.5rem; }
+        .chat { margin-top: 1rem; }
+        .bubble { margin-bottom: 1rem; }
+        .user { color: blue; }
+        .bot { color: darkred; }
+    </style>
+</head>
+<body>
+    <h1>NightAtlas Chat</h1>
+    <input id="userInput" placeholder="Say something..." />
+    <button onclick="sendMessage()">Send</button>
+
+    <div class="chat" id="chatBox"></div>
+
+    <script>
+        async function sendMessage() {
+            const input = document.getElementById("userInput");
+            const message = input.value.trim();
+            if (!message) return;
+
+            appendMessage("You", message, "user");
+            input.value = "";
+
+            const res = await fetch("/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message })
+            });
+
+            const data = await res.json();
+            appendMessage("Bot", data.reply, "bot");
+        }
+
+        function appendMessage(sender, text, className) {
+            const chatBox = document.getElementById("chatBox");
+            const div = document.createElement("div");
+            div.className = `bubble ${className}`;
+            div.textContent = `${sender}: ${text}`;
+            chatBox.appendChild(div);
+        }
+    </script>
+</body>
+</html>
