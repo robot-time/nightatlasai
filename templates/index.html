@@ -39,6 +39,7 @@
       padding: 1rem;
       display: none;
       flex-direction: column;
+      margin-bottom: 90px; /* Ensure space for input box */
     }
 
     .message {
@@ -46,6 +47,7 @@
       padding: 0.75rem 1rem;
       border-radius: 20px;
       max-width: 70%;
+      word-wrap: break-word;
     }
 
     .user {
@@ -80,14 +82,14 @@
       background: #1a1a1a;
       padding: 1rem;
       display: flex;
-      align-items: center;
+      align-items: flex-end; /* Align to bottom for vertical alignment with textarea */
       border-top: 1px solid #333;
       border-radius: 20px;
       width: 80%;
       max-width: 700px;
     }
 
-    .input-container input {
+    .input-container textarea {
       flex: 1;
       border: none;
       background: transparent;
@@ -95,6 +97,12 @@
       font-size: 1rem;
       padding: 0.6rem;
       outline: none;
+      resize: none;
+      overflow-y: auto;
+      min-height: 20px;
+      max-height: 150px;
+      line-height: 1.4;
+      font-family: inherit;
     }
 
     .input-container button {
@@ -107,7 +115,9 @@
       font-weight: 500;
       font-size: 0.9rem;
       margin-left: 0.5rem;
+      height: fit-content;
     }
+    
     .blinking-cursor {
       display: inline-block;
       width: 8px;
@@ -120,8 +130,21 @@
       50% {
         background-color: transparent;
       }
-}
-
+    }
+    
+    /* Style for code blocks */
+    pre {
+      position: relative;
+      background: #1e1e1e;
+      border-radius: 6px;
+      padding: 1rem;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+    
+    code {
+      font-family: 'Courier New', monospace;
+    }
   </style>
 </head>
 <body>
@@ -132,7 +155,7 @@
 
   <div id="inputWrapper" class="input-wrapper">
     <div class="input-container">
-      <input id="messageInput" type="text" placeholder="Ask anything..." />
+      <textarea id="messageInput" placeholder="Ask anything..." rows="1"></textarea>
       <button onclick="sendMessage()">Send</button>
     </div>
   </div>
@@ -167,6 +190,22 @@
       });
     }
   
+    // Auto-resize textarea as user types
+    const textarea = document.getElementById('messageInput');
+    
+    textarea.addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = (this.scrollHeight) + 'px';
+    });
+    
+    // Handle Enter key (send with Enter, newline with Shift+Enter)
+    textarea.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault(); // Prevent default Enter behavior
+        sendMessage();
+      }
+    });
+    
     // Run after DOM is loaded
     window.addEventListener("DOMContentLoaded", () => {
       addCopyButtons();
@@ -194,13 +233,21 @@
         inputWrapper.classList.add("moved");
       }
 
-      appendMessage(message, "user");
+      // Add user message without typing effect
+      const userMessageDiv = document.createElement("div");
+      userMessageDiv.classList.add("message", "user");
+      userMessageDiv.textContent = message;
+      chat.appendChild(userMessageDiv);
+      chat.scrollTop = chat.scrollHeight;
+      
+      // Reset the textarea height and clear it
       input.value = "";
+      input.style.height = 'auto';
 
       // Temporarily show AI typing...
       const aiMessage = document.createElement("div");
       aiMessage.classList.add("message", "bot");
-      aiMessage.textContent = "AI is typing...";  // Placeholder for AI message
+      aiMessage.textContent = "NightAtlas is typing... Hopefully.";
       chat.appendChild(aiMessage);
       chat.scrollTop = chat.scrollHeight;
 
@@ -212,7 +259,7 @@
 
       const data = await res.json();
 
-      // Remove "AI is typing..." message and add the real reply
+      // Remove "AI is typing..." message and add the real reply with typing effect
       aiMessage.remove();
       appendMessage(data.reply, "bot");
     }
@@ -222,35 +269,36 @@
       const chat = document.getElementById("chat");
       const msg = document.createElement("div");
       msg.classList.add("message", sender);
-      
-      // Add a blinking cursor when the AI is "thinking"
-      const cursorSpan = document.createElement("span");
-      cursorSpan.classList.add("blinking-cursor");
-      msg.appendChild(cursorSpan); // Add cursor to message
-      
       chat.appendChild(msg);
-      chat.scrollTop = chat.scrollHeight;
-
-      // Typing effect with the cursor animation
-      let index = 0;
-      const typingSpeed = 50; // Adjust to change typing speed
-
-      function typeCharacter() {
-        if (index < text.length) {
-          msg.textContent = text.substring(0, index + 1); // Update message text
-          index++;
-          setTimeout(typeCharacter, typingSpeed);
-        } else {
-          // Remove the blinking cursor once typing is complete
-          cursorSpan.remove();
+      
+      if (sender === "bot") {
+        // Only apply typing effect to bot messages
+        const cursorSpan = document.createElement("span");
+        cursorSpan.classList.add("blinking-cursor");
+        msg.appendChild(cursorSpan);
+        
+        let index = 0;
+        const typingSpeed = 20; // Faster typing speed for AI responses
+        
+        function typeCharacter() {
+          if (index < text.length) {
+            msg.textContent = text.substring(0, index + 1);
+            msg.appendChild(cursorSpan); // Keep cursor at the end
+            index++;
+            setTimeout(typeCharacter, typingSpeed);
+          } else {
+            cursorSpan.remove(); // Remove cursor when done
+          }
         }
+        
+        typeCharacter();
+      } else {
+        // User messages appear instantly
+        msg.textContent = text;
       }
-
-      typeCharacter(); // Start the typing effect
+      
+      chat.scrollTop = chat.scrollHeight;
     }
-
-
-
   </script>
 </body>
 </html>
