@@ -504,6 +504,139 @@
       font-weight: bold;
       color: #666;
     }
+
+    /* Cheatsheet Panel Styles */
+    .cheatsheet-panel {
+      position: fixed;
+      right: -400px;
+      top: 0;
+      width: 400px;
+      height: 100vh;
+      background: #1a1a1a;
+      box-shadow: -2px 0 10px rgba(0, 0, 0, 0.3);
+      transition: right 0.3s ease;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .cheatsheet-panel.open {
+      right: 0;
+    }
+
+    .cheatsheet-header {
+      padding: 1.2rem;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #222;
+    }
+
+    .cheatsheet-header h3 {
+      margin: 0;
+      font-size: 1.2rem;
+      color: #fff;
+    }
+
+    .cheatsheet-header button {
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 1.5rem;
+      cursor: pointer;
+      padding: 0.5rem;
+      border-radius: 50%;
+      transition: background-color 0.3s ease;
+    }
+
+    .cheatsheet-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.5rem;
+      background: #1a1a1a;
+    }
+
+    .cheatsheet-section {
+      background: #2a2a2a;
+      border-radius: 10px;
+      padding: 1.2rem;
+      margin-bottom: 1rem;
+    }
+
+    .cheatsheet-section h4 {
+      margin: 0 0 0.8rem 0;
+      color: #4F57E2;
+      font-size: 1.1rem;
+    }
+
+    .cheatsheet-section p {
+      margin: 0 0 0.8rem 0;
+      color: #ccc;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+
+    .cheatsheet-subsection {
+      background: #333;
+      border-radius: 8px;
+      padding: 0.8rem;
+      margin: 0.5rem 0;
+    }
+
+    .cheatsheet-subsection h5 {
+      margin: 0 0 0.5rem 0;
+      color: #fff;
+      font-size: 1rem;
+    }
+
+    .cheatsheet-subsection p {
+      margin: 0;
+      color: #ccc;
+      font-size: 0.9rem;
+    }
+
+    .layout-hint {
+      background: rgba(79, 87, 226, 0.1);
+      border-left: 3px solid #4F57E2;
+      padding: 0.8rem;
+      margin-top: 0.8rem;
+      font-size: 0.9rem;
+      color: #4F57E2;
+    }
+
+    .cheatsheet-actions {
+      padding: 1rem;
+      border-top: 1px solid #333;
+      display: flex;
+      gap: 0.8rem;
+      background: #222;
+    }
+
+    .cheatsheet-actions button {
+      flex: 1;
+      padding: 0.8rem;
+      background: #4F57E2;
+      border: none;
+      color: white;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.3s ease;
+    }
+
+    .cheatsheet-actions button:hover {
+      background: #3f46b3;
+    }
+
+    .cheatsheet-actions button.secondary {
+      background: #333;
+    }
+
+    .cheatsheet-actions button.secondary:hover {
+      background: #444;
+    }
   </style>
 </head>
 <body>
@@ -536,6 +669,21 @@
     <div class="flashcard-controls">
       <button onclick="previousCard()" id="prevButton">Previous</button>
       <button onclick="nextCard()" id="nextButton">Next</button>
+    </div>
+  </div>
+
+  <!-- Add this after the flashcard panel -->
+  <div class="cheatsheet-panel" id="cheatsheetPanel">
+    <div class="cheatsheet-header">
+      <h3>Study Cheatsheet</h3>
+      <button onclick="toggleCheatsheet()">×</button>
+    </div>
+    <div class="cheatsheet-content" id="cheatsheetContent">
+      <!-- Cheatsheet content will be dynamically added here -->
+    </div>
+    <div class="cheatsheet-actions">
+      <button onclick="printCheatsheet()" class="secondary">Print</button>
+      <button onclick="downloadCheatsheet()">Download PDF</button>
     </div>
   </div>
 
@@ -841,6 +989,162 @@
       const welcomeElement = document.getElementById('welcome');
       const randomIndex = Math.floor(Math.random() * welcomeMessages.length);
       welcomeElement.textContent = welcomeMessages[randomIndex];
+    }
+  </script>
+
+  <script>
+    // Add these functions to your existing script section
+    let currentCheatsheet = null;
+
+    function toggleCheatsheet() {
+      const panel = document.getElementById('cheatsheetPanel');
+      panel.classList.toggle('open');
+    }
+
+    function displayCheatsheet(cheatsheet) {
+      currentCheatsheet = cheatsheet;
+      const container = document.getElementById('cheatsheetContent');
+      container.innerHTML = '';
+
+      cheatsheet.forEach(section => {
+        const sectionDiv = document.createElement('div');
+        sectionDiv.className = 'cheatsheet-section';
+        
+        sectionDiv.innerHTML = `
+          <h4>${section.title}</h4>
+          <p>${section.description}</p>
+          ${section.subsections ? `
+            <div class="subsections">
+              ${section.subsections.map(sub => `
+                <div class="cheatsheet-subsection">
+                  <h5>${sub.title}</h5>
+                  <p>${sub.description}</p>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+          <div class="layout-hint">
+            <strong>Layout Hint:</strong> ${section.layout_hint}
+          </div>
+        `;
+        
+        container.appendChild(sectionDiv);
+      });
+    }
+
+    function printCheatsheet() {
+      if (!currentCheatsheet) return;
+      
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Study Cheatsheet</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 20px; }
+              .section { margin-bottom: 20px; }
+              .subsection { margin: 10px 0; padding: 10px; background: #f5f5f5; }
+              .hint { margin-top: 10px; padding: 10px; background: #eef; }
+            </style>
+          </head>
+          <body>
+            ${currentCheatsheet.map(section => `
+              <div class="section">
+                <h3>${section.title}</h3>
+                <p>${section.description}</p>
+                ${section.subsections ? `
+                  <div class="subsections">
+                    ${section.subsections.map(sub => `
+                      <div class="subsection">
+                        <h4>${sub.title}</h4>
+                        <p>${sub.description}</p>
+                      </div>
+                    `).join('')}
+                  </div>
+                ` : ''}
+                <div class="hint">
+                  <strong>Layout Hint:</strong> ${section.layout_hint}
+                </div>
+              </div>
+            `).join('')}
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+    }
+
+    function downloadCheatsheet() {
+      if (!currentCheatsheet) return;
+      
+      // Create a printable version of the cheatsheet
+      const content = document.getElementById('cheatsheetContent').innerHTML;
+      const blob = new Blob([content], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'study-cheatsheet.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // Modify your existing sendMessage function to handle cheatsheet requests
+    async function sendMessage() {
+      const input = document.getElementById("messageInput");
+      const chat = document.getElementById("chat");
+      const welcome = document.getElementById("welcome");
+      const inputWrapper = document.getElementById("inputWrapper");
+
+      const message = input.value.trim();
+      if (!message) return;
+
+      if (!hasStarted) {
+        hasStarted = true;
+        welcome.style.display = "none";
+        chat.style.display = "flex";
+        inputWrapper.classList.add("moved");
+      }
+
+      // Add user message
+      appendMessage(message, "user");
+      
+      // Reset the textarea height and clear it
+      input.value = "";
+      input.style.height = 'auto';
+
+      // Check if this is a cheatsheet request
+      const cheatsheetRegex = /\b(?:cheatsheet|cheat sheet|study guide|study notes|test notes)\b/i;
+      if (cheatsheetRegex.test(message)) {
+        // Extract topic from the message
+        const topic = message.replace(cheatsheetRegex, "").trim();
+        
+        try {
+          const response = await fetch('/generate_cheatsheet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic: topic }),
+          });
+          
+          const data = await response.json();
+          
+          if (data.error) {
+            appendMessage(`Sorry, I couldn't generate the cheatsheet: ${data.error}`, "bot");
+          } else {
+            appendMessage(`I've created a study cheatsheet layout for ${topic}. Click the cheatsheet icon to view it.`, "bot", true);
+            displayCheatsheet(data.cheatsheet);
+            const panel = document.getElementById('cheatsheetPanel');
+            panel.classList.add('open');
+          }
+        } catch (error) {
+          appendMessage("Sorry, there was an error generating the cheatsheet.", "bot");
+        }
+        return;
+      }
+
+      // Rest of your existing sendMessage function...
     }
   </script>
 </body>
