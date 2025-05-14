@@ -28,7 +28,7 @@ users = {}
 conversations = {}
 message_count = {}
 message_limit = 25  # Set your desired message limit here
-reset_time = 10800  # Reset counter every 3 hours (10800 seconds)
+reset_time = 14400  # Reset counter every 4 hours (14400 seconds)
 
 # Maximum token limit for conversation context
 MAX_TOKENS = 2500  # Adjust based on your model's context window
@@ -47,6 +47,31 @@ def num_tokens_from_messages(messages):
             num_tokens += len(tokenizer.encode(value))
     num_tokens += 2  # Add 2 for the final assistant message role overhead
     return num_tokens
+
+def get_remaining_messages(username):
+    """Get the number of remaining messages and time until reset"""
+    if username not in message_count:
+        return message_limit, 0
+    
+    count_data = message_count[username]
+    time_elapsed = time.time() - count_data['timestamp']
+    
+    if time_elapsed >= reset_time:
+        return message_limit, 0
+    
+    remaining = message_limit - count_data['count']
+    time_until_reset = reset_time - time_elapsed
+    
+    return remaining, time_until_reset
+
+def format_time_remaining(seconds):
+    """Format seconds into a human-readable time string"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    
+    if hours > 0:
+        return f"{hours} hour{'s' if hours != 1 else ''} and {minutes} minute{'s' if minutes != 1 else ''}"
+    return f"{minutes} minute{'s' if minutes != 1 else ''}"
 
 @app.route("/")
 def home():
@@ -115,30 +140,6 @@ def chat():
     username = session["username"]
     user_input = request.json.get("message", "")
     
-    # Check if this is a flashcard request
-    if is_flashcard_request(user_input):
-        # Extract topic from the message (this is a simple implementation)
-        # You might want to make this more sophisticated
-        topic = user_input.replace("flashcard", "").replace("flash card", "").strip()
-        if topic:
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-4.1-mini",
-                    messages=[{
-                        "role": "user",
-                        "content": f"Extract the main topic from this flashcard request: {user_input}"
-                    }]
-                )
-                topic = response.choices[0].message.content.strip()
-            except:
-                pass  # If extraction fails, use the original topic
-        
-        return jsonify({
-            "reply": f"I'll create some flashcards about {topic} for you!",
-            "flashcard_request": True,
-            "topic": topic
-        })
-    
     # Initialize user data if not exists
     if username not in message_count:
         message_count[username] = {'count': 0, 'timestamp': time.time()}
@@ -151,9 +152,39 @@ def chat():
         message_count[username] = {'count': 0, 'timestamp': time.time()}
 
     # Check if the user has exceeded the message limit
-    if message_count[username]['count'] >= message_limit:
-        return jsonify({"reply": "Message limit exceeded. Please try again later."}), 403
+    remaining, time_until_reset = get_remaining_messages(username)
+    if remaining <= 0:
+        time_str = format_time_remaining(time_until_reset)
+        return jsonify({
+            "reply": f"You've reached your message limit. Please try again in {time_str}.",
+            "error": "rate_limit",
+            "time_until_reset": time_until_reset
+        }), 429
 
+    # Check if this is a flashcard request
+    if is_flashcard_request(user_input):
+        # Extract topic from the message
+        topic = user_input.replace("flashcard", "").replace("flash card", "").strip()
+        if topic:
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4.1-mini",
+                    messages=[{
+                        "role": "user",
+                        "content": f"Extract the main topic from this flashcard request: {user_input}"
+                    }]
+                )
+                topic = response.choices[0].message.content.strip()
+            except:
+                pass
+        
+        return jsonify({
+            "reply": f"I'll create some flashcards about {topic} for you!",
+            "flashcard_request": True,
+            "topic": topic,
+            "remaining_messages": remaining - 1
+        })
+    
     # Add the user message to conversation history
     conversations[username].append({"role": "user", "content": user_input})
     
@@ -175,7 +206,10 @@ def chat():
         # Increment message count for the user
         message_count[username]['count'] += 1
         
-        return jsonify({"reply": reply})
+        return jsonify({
+            "reply": reply,
+            "remaining_messages": remaining - 1
+        })
 
     except Exception as e:
         return jsonify({"reply": f"Error: {str(e)}"}), 500
@@ -262,13 +296,16 @@ def generate_flashcards():
             
         topic = data["topic"]
         
-        # Add the user's request to conversation history with a more flexible prompt
-        conversations[username].append({
-            "role": "user", 
-            "content": f"""The user wants to create flashcards about: {topic}
-Please generate a set of educational flashcards that cover the key concepts, definitions, and important information about this topic.
-Format your response as a JSON object with a 'cards' array containing objects with 'front' and 'back' properties.
-Make the cards concise but informative, with clear questions on the front and detailed answers on the back.
+        # Create a specific prompt for flashcard generation
+        flashcard_prompt = f"""Create a set of educational flashcards about: {topic}
+
+Requirements:
+1. Generate 5-7 flashcards covering key concepts
+2. Each card should have a clear question on the front and a detailed answer on the back
+3. Format the response as a JSON object with a 'cards' array
+4. Each card should have 'front' and 'back' properties
+5. Keep questions concise and answers informative but not too long
+
 Example format:
 {{
   "cards": [
@@ -281,52 +318,69 @@ Example format:
       "back": "Y is..."
     }}
   ]
-}}"""
-        })
-        
-        # Prepare messages for API
-        messages = trim_conversation_history(conversations[username])
-        
+}}
+
+Please provide the flashcards in this exact JSON format."""
+
         try:
             response = client.chat.completions.create(
                 model="gpt-4.1-mini",
-                messages=messages
+                messages=[{
+                    "role": "user",
+                    "content": flashcard_prompt
+                }],
+                temperature=0.7,
+                max_tokens=1000
             )
             
-            reply = response.choices[0].message.content
-            flashcard_data = parse_flashcards(reply)
+            reply = response.choices[0].message.content.strip()
             
-            if not flashcard_data:
-                # Try to fix malformed JSON
-                try:
-                    # Look for JSON-like structure and try to fix common issues
-                    json_str = reply[reply.find('{'):reply.rfind('}')+1]
-                    json_str = json_str.replace("'", '"')  # Replace single quotes with double quotes
-                    flashcard_data = json.loads(json_str)
-                except:
-                    return jsonify({"error": "Failed to parse flashcard data"}), 400
-            
-            if not flashcard_data or "cards" not in flashcard_data:
-                return jsonify({"error": "Invalid flashcard format"}), 400
+            # Try to parse the JSON response
+            try:
+                # First, try to find JSON in the response
+                start_idx = reply.find('{')
+                end_idx = reply.rfind('}') + 1
+                if start_idx == -1 or end_idx == 0:
+                    return jsonify({"error": "Invalid response format"}), 400
                 
-            # Validate each card has required fields
-            for card in flashcard_data["cards"]:
-                if not isinstance(card, dict) or "front" not in card or "back" not in card:
-                    return jsonify({"error": "Invalid card format"}), 400
-            
-            # Add assistant's response to conversation history
-            conversations[username].append({"role": "assistant", "content": reply})
-            return jsonify({
-                "flashcards": flashcard_data["cards"],
-                "topic": topic
-            })
-
+                json_str = reply[start_idx:end_idx]
+                # Clean up the JSON string
+                json_str = json_str.replace("'", '"')  # Replace single quotes with double quotes
+                json_str = json_str.replace("\n", " ")  # Remove newlines
+                json_str = json_str.replace("\\", "\\\\")  # Escape backslashes
+                
+                flashcard_data = json.loads(json_str)
+                
+                # Validate the flashcard data structure
+                if not isinstance(flashcard_data, dict) or "cards" not in flashcard_data:
+                    return jsonify({"error": "Invalid flashcard format"}), 400
+                
+                if not isinstance(flashcard_data["cards"], list):
+                    return jsonify({"error": "Cards must be an array"}), 400
+                
+                # Validate each card
+                for card in flashcard_data["cards"]:
+                    if not isinstance(card, dict) or "front" not in card or "back" not in card:
+                        return jsonify({"error": "Invalid card format"}), 400
+                    if not isinstance(card["front"], str) or not isinstance(card["back"], str):
+                        return jsonify({"error": "Card content must be strings"}), 400
+                
+                return jsonify({
+                    "flashcards": flashcard_data["cards"],
+                    "topic": topic
+                })
+                
+            except json.JSONDecodeError as e:
+                print(f"JSON Parse Error: {str(e)}")
+                print(f"Raw response: {reply}")
+                return jsonify({"error": "Failed to parse flashcard data"}), 400
+                
         except Exception as e:
-            print(f"OpenAI API Error: {str(e)}")  # Log the error
+            print(f"OpenAI API Error: {str(e)}")
             return jsonify({"error": "Failed to generate flashcards"}), 500
 
     except Exception as e:
-        print(f"General Error: {str(e)}")  # Log the error
+        print(f"General Error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
