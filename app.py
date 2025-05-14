@@ -192,6 +192,57 @@ def reset_conversation():
         
     return jsonify({"status": "Conversation history reset successfully"})
 
+def parse_flashcards(text):
+    """Parse flashcard data from AI response text"""
+    try:
+        # Look for JSON-like structure in the response
+        start_idx = text.find('{')
+        end_idx = text.rfind('}') + 1
+        if start_idx == -1 or end_idx == 0:
+            return None
+        
+        import json
+        flashcard_data = json.loads(text[start_idx:end_idx])
+        return flashcard_data
+    except:
+        return None
+
+@app.route("/generate_flashcards", methods=["POST"])
+def generate_flashcards():
+    if "username" not in session:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    username = session["username"]
+    topic = request.json.get("topic", "")
+    
+    # Add the user's request to conversation history
+    conversations[username].append({
+        "role": "user", 
+        "content": f"Generate flashcards for the following topic: {topic}. Format the response as a JSON object with 'cards' array containing objects with 'front' and 'back' properties."
+    })
+    
+    # Prepare messages for API
+    messages = trim_conversation_history(conversations[username])
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=messages
+        )
+        
+        reply = response.choices[0].message.content
+        flashcard_data = parse_flashcards(reply)
+        
+        if flashcard_data and "cards" in flashcard_data:
+            # Add assistant's response to conversation history
+            conversations[username].append({"role": "assistant", "content": reply})
+            return jsonify({"flashcards": flashcard_data["cards"]})
+        else:
+            return jsonify({"error": "Failed to generate flashcards"}), 400
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
