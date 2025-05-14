@@ -337,15 +337,6 @@
       opacity: 0.8;
     }
 
-    .flashcard-content {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
-      background: #1a1a1a;
-    }
-
     .flashcard {
       background: #2a2a2a;
       border-radius: 15px;
@@ -356,6 +347,9 @@
       transition: all 0.3s ease;
       perspective: 1000px;
       box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .flashcard:hover {
@@ -383,17 +377,88 @@
       height: 100%;
       backface-visibility: hidden;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       padding: 1.5rem;
       font-size: 1.3rem;
       line-height: 1.6;
       border-radius: 15px;
+      overflow-y: auto;
+    }
+
+    .flashcard-front {
+      background: #2a2a2a;
+      color: #fff;
     }
 
     .flashcard-back {
       transform: rotateY(180deg);
       background: #333;
+      color: #fff;
+    }
+
+    .flashcard-front p,
+    .flashcard-back p {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+    }
+
+    .flashcard-front h1,
+    .flashcard-front h2,
+    .flashcard-front h3,
+    .flashcard-back h1,
+    .flashcard-back h2,
+    .flashcard-back h3 {
+      margin: 0 0 1rem 0;
+      padding: 0;
+      width: 100%;
+    }
+
+    .flashcard-front ul,
+    .flashcard-back ul,
+    .flashcard-front ol,
+    .flashcard-back ol {
+      margin: 0;
+      padding: 0 0 0 1.5rem;
+      width: 100%;
+      text-align: left;
+    }
+
+    .flashcard-front li,
+    .flashcard-back li {
+      margin: 0.5rem 0;
+    }
+
+    .flashcard-front code,
+    .flashcard-back code {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+    }
+
+    .flashcard-front pre,
+    .flashcard-back pre {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 1rem;
+      border-radius: 8px;
+      width: 100%;
+      overflow-x: auto;
+      text-align: left;
+      margin: 1rem 0;
+    }
+
+    .flashcard-content {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      background: #1a1a1a;
+      overflow: hidden;
     }
 
     .flashcard-controls {
