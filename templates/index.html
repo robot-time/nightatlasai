@@ -230,7 +230,7 @@
       margin-left: 0.5rem;
     }
 
-    /* Flashcard styles */
+    /* Updated Flashcard styles */
     .flashcard-panel {
       position: fixed;
       right: -400px;
@@ -257,17 +257,46 @@
       align-items: center;
     }
 
+    .flashcard-progress {
+      padding: 1rem;
+      border-bottom: 1px solid #333;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #333;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: #4F57E2;
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      text-align: center;
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+      opacity: 0.7;
+    }
+
     .flashcard-content {
       flex: 1;
-      overflow-y: auto;
-      padding: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
     }
 
     .flashcard {
       background: #2a2a2a;
       border-radius: 10px;
-      padding: 1.5rem;
-      margin-bottom: 1rem;
+      padding: 2rem;
+      width: 100%;
+      aspect-ratio: 3/2;
       cursor: pointer;
       transition: transform 0.3s ease;
       perspective: 1000px;
@@ -300,6 +329,8 @@
       align-items: center;
       justify-content: center;
       padding: 1rem;
+      font-size: 1.2rem;
+      line-height: 1.5;
     }
 
     .flashcard-back {
@@ -317,16 +348,22 @@
 
     .flashcard-controls button {
       flex: 1;
-      padding: 0.5rem;
+      padding: 0.8rem;
       background: #4F57E2;
       border: none;
       color: white;
       border-radius: 5px;
       cursor: pointer;
+      font-size: 1rem;
     }
 
     .flashcard-controls button:hover {
       background: #3f46b3;
+    }
+
+    .flashcard-controls button:disabled {
+      background: #666;
+      cursor: not-allowed;
     }
   </style>
 </head>
@@ -337,7 +374,6 @@
       NightAtlas AI <span class="username-display">{{ username }}</span>
     </div>
     <div class="header-actions">
-      <button onclick="toggleFlashcards()">Flashcards</button>
       <button onclick="resetConversation()">New Chat</button>
       <button onclick="window.location.href='/logout'">Logout</button>
     </div>
@@ -349,12 +385,18 @@
       <h3>Flashcards</h3>
       <button onclick="toggleFlashcards()">×</button>
     </div>
+    <div class="flashcard-progress">
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-text" id="progressText">Card 0 of 0</div>
+    </div>
     <div class="flashcard-content" id="flashcardContent">
-      <!-- Flashcards will be inserted here -->
+      <!-- Single flashcard will be shown here -->
     </div>
     <div class="flashcard-controls">
-      <button onclick="generateFlashcards()">Generate New</button>
-      <button onclick="shuffleFlashcards()">Shuffle</button>
+      <button onclick="previousCard()" id="prevButton">Previous</button>
+      <button onclick="nextCard()" id="nextButton">Next</button>
     </div>
   </div>
 
@@ -464,6 +506,78 @@
   <script>
     let hasStarted = false;
 
+    // Updated Flashcard functionality
+    let currentFlashcards = [];
+    let currentCardIndex = 0;
+
+    function toggleFlashcards() {
+      const panel = document.getElementById('flashcardPanel');
+      panel.classList.toggle('open');
+    }
+
+    function updateProgress() {
+      const progressFill = document.getElementById('progressFill');
+      const progressText = document.getElementById('progressText');
+      const prevButton = document.getElementById('prevButton');
+      const nextButton = document.getElementById('nextButton');
+      
+      if (currentFlashcards.length === 0) {
+        progressFill.style.width = '0%';
+        progressText.textContent = 'No cards';
+        prevButton.disabled = true;
+        nextButton.disabled = true;
+        return;
+      }
+      
+      const progress = ((currentCardIndex + 1) / currentFlashcards.length) * 100;
+      progressFill.style.width = `${progress}%`;
+      progressText.textContent = `Card ${currentCardIndex + 1} of ${currentFlashcards.length}`;
+      
+      prevButton.disabled = currentCardIndex === 0;
+      nextButton.disabled = currentCardIndex === currentFlashcards.length - 1;
+    }
+
+    function displayCurrentCard() {
+      const container = document.getElementById('flashcardContent');
+      container.innerHTML = '';
+      
+      if (currentFlashcards.length === 0) {
+        container.innerHTML = '<div class="flashcard">No flashcards available</div>';
+        return;
+      }
+      
+      const card = currentFlashcards[currentCardIndex];
+      const flashcard = document.createElement('div');
+      flashcard.className = 'flashcard';
+      flashcard.innerHTML = `
+        <div class="flashcard-inner">
+          <div class="flashcard-front">${card.front}</div>
+          <div class="flashcard-back">${card.back}</div>
+        </div>
+      `;
+      
+      flashcard.addEventListener('click', () => {
+        flashcard.classList.toggle('flipped');
+      });
+      
+      container.appendChild(flashcard);
+      updateProgress();
+    }
+
+    function nextCard() {
+      if (currentCardIndex < currentFlashcards.length - 1) {
+        currentCardIndex++;
+        displayCurrentCard();
+      }
+    }
+
+    function previousCard() {
+      if (currentCardIndex > 0) {
+        currentCardIndex--;
+        displayCurrentCard();
+      }
+    }
+
     async function sendMessage() {
       const input = document.getElementById("messageInput");
       const chat = document.getElementById("chat");
@@ -492,7 +606,7 @@
       input.style.height = 'auto';
 
       // Check if the message is a flashcard request
-      const flashcardMatch = message.match(/generate\s+(?:me\s+)?flashcards?\s+(?:for|about|on)\s+(.+)/i);
+      const flashcardMatch = message.match(/make\s+(?:me\s+)?flashcards?\s+(?:for|about|on)\s+(.+)/i);
       if (flashcardMatch) {
         const topic = flashcardMatch[1].trim();
         // Show AI typing message
@@ -519,12 +633,13 @@
           } else {
             // Store the flashcards and display them
             currentFlashcards = data.flashcards;
-            displayFlashcards();
+            currentCardIndex = 0;
+            displayCurrentCard();
             // Open the flashcard panel
             const panel = document.getElementById('flashcardPanel');
             panel.classList.add('open');
             // Add a confirmation message
-            appendMessage(`I've generated ${data.flashcards.length} flashcards about ${topic}. You can find them in the flashcard panel on the right.`, "bot");
+            appendMessage(`I've generated ${data.flashcards.length} flashcards about ${topic}. You can find them in the panel on the right. Click a card to flip it!`, "bot");
           }
         } catch (error) {
           aiMessage.remove();
@@ -533,6 +648,7 @@
         return;
       }
 
+      // Regular chat message handling...
       // Temporarily show AI typing...
       const aiMessage = document.createElement("div");
       aiMessage.classList.add("message", "bot");
@@ -658,75 +774,6 @@
       const welcomeElement = document.getElementById('welcome');
       const randomIndex = Math.floor(Math.random() * welcomeMessages.length);
       welcomeElement.textContent = welcomeMessages[randomIndex];
-    }
-  </script>
-
-  <script>
-    // Flashcard functionality
-    let currentFlashcards = [];
-
-    function toggleFlashcards() {
-      const panel = document.getElementById('flashcardPanel');
-      panel.classList.toggle('open');
-    }
-
-    function generateFlashcards() {
-      const topic = prompt('Enter a topic for flashcards:');
-      if (!topic) return;
-
-      fetch('/generate_flashcards', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ topic }),
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.error) {
-          alert(data.error);
-          return;
-        }
-        currentFlashcards = data.flashcards;
-        displayFlashcards();
-      })
-      .catch(error => {
-        console.error('Error:', error);
-        alert('Failed to generate flashcards');
-      });
-    }
-
-    function displayFlashcards() {
-      const container = document.getElementById('flashcardContent');
-      container.innerHTML = '';
-      
-      currentFlashcards.forEach((card, index) => {
-        const flashcard = document.createElement('div');
-        flashcard.className = 'flashcard';
-        flashcard.innerHTML = `
-          <div class="flashcard-inner">
-            <div class="flashcard-front">${card.front}</div>
-            <div class="flashcard-back">${card.back}</div>
-          </div>
-        `;
-        
-        flashcard.addEventListener('click', () => {
-          flashcard.classList.toggle('flipped');
-        });
-        
-        container.appendChild(flashcard);
-      });
-    }
-
-    function shuffleFlashcards() {
-      if (currentFlashcards.length === 0) return;
-      
-      for (let i = currentFlashcards.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [currentFlashcards[i], currentFlashcards[j]] = [currentFlashcards[j], currentFlashcards[i]];
-      }
-      
-      displayFlashcards();
     }
   </script>
 </body>
