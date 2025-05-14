@@ -114,6 +114,30 @@ def chat():
     username = session["username"]
     user_input = request.json.get("message", "")
     
+    # Check if this is a flashcard request
+    if is_flashcard_request(user_input):
+        # Extract topic from the message (this is a simple implementation)
+        # You might want to make this more sophisticated
+        topic = user_input.replace("flashcard", "").replace("flash card", "").strip()
+        if topic:
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4.1-mini",
+                    messages=[{
+                        "role": "user",
+                        "content": f"Extract the main topic from this flashcard request: {user_input}"
+                    }]
+                )
+                topic = response.choices[0].message.content.strip()
+            except:
+                pass  # If extraction fails, use the original topic
+        
+        return jsonify({
+            "reply": f"I'll create some flashcards about {topic} for you!",
+            "flashcard_request": True,
+            "topic": topic
+        })
+    
     # Initialize user data if not exists
     if username not in message_count:
         message_count[username] = {'count': 0, 'timestamp': time.time()}
@@ -207,6 +231,17 @@ def parse_flashcards(text):
     except:
         return None
 
+def is_flashcard_request(text):
+    """Check if the message is requesting flashcards"""
+    # Common phrases that might indicate a flashcard request
+    flashcard_indicators = [
+        "flashcard", "flash card", "study cards", "review cards",
+        "quiz cards", "memory cards", "learning cards"
+    ]
+    
+    # Check if any indicator is in the text
+    return any(indicator in text.lower() for indicator in flashcard_indicators)
+
 @app.route("/generate_flashcards", methods=["POST"])
 def generate_flashcards():
     if "username" not in session:
@@ -215,10 +250,13 @@ def generate_flashcards():
     username = session["username"]
     topic = request.json.get("topic", "")
     
-    # Add the user's request to conversation history
+    # Add the user's request to conversation history with a more flexible prompt
     conversations[username].append({
         "role": "user", 
-        "content": f"Generate flashcards for the following topic: {topic}. Format the response as a JSON object with 'cards' array containing objects with 'front' and 'back' properties."
+        "content": f"""The user wants to create flashcards about: {topic}
+Please generate a set of educational flashcards that cover the key concepts, definitions, and important information about this topic.
+Format your response as a JSON object with a 'cards' array containing objects with 'front' and 'back' properties.
+Make the cards concise but informative, with clear questions on the front and detailed answers on the back."""
     })
     
     # Prepare messages for API
@@ -236,7 +274,10 @@ def generate_flashcards():
         if flashcard_data and "cards" in flashcard_data:
             # Add assistant's response to conversation history
             conversations[username].append({"role": "assistant", "content": reply})
-            return jsonify({"flashcards": flashcard_data["cards"]})
+            return jsonify({
+                "flashcards": flashcard_data["cards"],
+                "topic": topic
+            })
         else:
             return jsonify({"error": "Failed to generate flashcards"}), 400
 
