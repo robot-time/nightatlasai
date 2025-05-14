@@ -6,6 +6,7 @@ import time
 import tiktoken
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -225,10 +226,16 @@ def parse_flashcards(text):
         if start_idx == -1 or end_idx == 0:
             return None
         
-        import json
-        flashcard_data = json.loads(text[start_idx:end_idx])
+        json_str = text[start_idx:end_idx]
+        # Clean up the JSON string
+        json_str = json_str.replace("'", '"')  # Replace single quotes with double quotes
+        json_str = json_str.replace("\n", " ")  # Remove newlines
+        json_str = json_str.replace("\\", "\\\\")  # Escape backslashes
+        
+        flashcard_data = json.loads(json_str)
         return flashcard_data
-    except:
+    except Exception as e:
+        print(f"Parse Error: {str(e)}")  # Log the error
         return None
 
 def is_flashcard_request(text):
@@ -247,42 +254,80 @@ def generate_flashcards():
     if "username" not in session:
         return jsonify({"error": "Not authenticated"}), 401
     
-    username = session["username"]
-    topic = request.json.get("topic", "")
-    
-    # Add the user's request to conversation history with a more flexible prompt
-    conversations[username].append({
-        "role": "user", 
-        "content": f"""The user wants to create flashcards about: {topic}
+    try:
+        username = session["username"]
+        data = request.get_json()
+        if not data or "topic" not in data:
+            return jsonify({"error": "No topic provided"}), 400
+            
+        topic = data["topic"]
+        
+        # Add the user's request to conversation history with a more flexible prompt
+        conversations[username].append({
+            "role": "user", 
+            "content": f"""The user wants to create flashcards about: {topic}
 Please generate a set of educational flashcards that cover the key concepts, definitions, and important information about this topic.
 Format your response as a JSON object with a 'cards' array containing objects with 'front' and 'back' properties.
-Make the cards concise but informative, with clear questions on the front and detailed answers on the back."""
-    })
-    
-    # Prepare messages for API
-    messages = trim_conversation_history(conversations[username])
-    
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=messages
-        )
+Make the cards concise but informative, with clear questions on the front and detailed answers on the back.
+Example format:
+{{
+  "cards": [
+    {{
+      "front": "What is X?",
+      "back": "X is..."
+    }},
+    {{
+      "front": "Define Y",
+      "back": "Y is..."
+    }}
+  ]
+}}"""
+        })
         
-        reply = response.choices[0].message.content
-        flashcard_data = parse_flashcards(reply)
+        # Prepare messages for API
+        messages = trim_conversation_history(conversations[username])
         
-        if flashcard_data and "cards" in flashcard_data:
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=messages
+            )
+            
+            reply = response.choices[0].message.content
+            flashcard_data = parse_flashcards(reply)
+            
+            if not flashcard_data:
+                # Try to fix malformed JSON
+                try:
+                    # Look for JSON-like structure and try to fix common issues
+                    json_str = reply[reply.find('{'):reply.rfind('}')+1]
+                    json_str = json_str.replace("'", '"')  # Replace single quotes with double quotes
+                    flashcard_data = json.loads(json_str)
+                except:
+                    return jsonify({"error": "Failed to parse flashcard data"}), 400
+            
+            if not flashcard_data or "cards" not in flashcard_data:
+                return jsonify({"error": "Invalid flashcard format"}), 400
+                
+            # Validate each card has required fields
+            for card in flashcard_data["cards"]:
+                if not isinstance(card, dict) or "front" not in card or "back" not in card:
+                    return jsonify({"error": "Invalid card format"}), 400
+            
             # Add assistant's response to conversation history
             conversations[username].append({"role": "assistant", "content": reply})
             return jsonify({
                 "flashcards": flashcard_data["cards"],
                 "topic": topic
             })
-        else:
-            return jsonify({"error": "Failed to generate flashcards"}), 400
+
+        except Exception as e:
+            print(f"OpenAI API Error: {str(e)}")  # Log the error
+            return jsonify({"error": "Failed to generate flashcards"}), 500
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"General Error: {str(e)}")  # Log the error
+        return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
