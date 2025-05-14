@@ -300,7 +300,7 @@ def generate_flashcards():
         flashcard_prompt = f"""Create a set of educational flashcards about: {topic}
 
 Requirements:
-1. Generate 5-15 flashcards covering key concepts
+1. Generate 5-7 flashcards covering key concepts
 2. Each card should have a clear question on the front and a detailed answer on the back
 3. Format the response as a JSON object with a 'cards' array
 4. Each card should have 'front' and 'back' properties
@@ -378,123 +378,6 @@ Please provide the flashcards in this exact JSON format."""
         except Exception as e:
             print(f"OpenAI API Error: {str(e)}")
             return jsonify({"error": "Failed to generate flashcards"}), 500
-
-    except Exception as e:
-        print(f"General Error: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
-
-@app.route("/generate_cheatsheet", methods=["POST"])
-def generate_cheatsheet():
-    if "username" not in session:
-        return jsonify({"error": "Not authenticated"}), 401
-    
-    try:
-        username = session["username"]
-        data = request.get_json()
-        if not data or "topic" not in data:
-            return jsonify({"error": "No topic provided"}), 400
-            
-        topic = data["topic"]
-        
-        # Create a specific prompt for cheatsheet layout
-        cheatsheet_prompt = f"""Create a study cheatsheet layout for: {topic}
-
-Requirements:
-1. Focus on organizing the content in a clear, logical structure
-2. Suggest sections and subsections that would be most helpful
-3. Include brief hints about what should go in each section
-4. Format the response as a JSON object with a 'sections' array
-5. Each section should have:
-   - title: The section title
-   - description: Brief description of what belongs here
-   - subsections: Array of subsections (if applicable)
-   - layout_hint: Suggestion for how to arrange this section on the page
-
-Example format:
-{{
-  "sections": [
-    {{
-      "title": "Key Concepts",
-      "description": "List the main concepts and their brief definitions",
-      "subsections": [
-        {{
-          "title": "Concept 1",
-          "description": "Brief explanation of what to include"
-        }}
-      ],
-      "layout_hint": "Place at the top of the page, use bullet points"
-    }}
-  ]
-}}
-
-Please provide the cheatsheet structure in this exact JSON format."""
-
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4.1-mini",
-                messages=[{
-                    "role": "user",
-                    "content": cheatsheet_prompt
-                }],
-                temperature=0.7,
-                max_tokens=1000
-            )
-            
-            reply = response.choices[0].message.content.strip()
-            
-            # Try to parse the JSON response
-            try:
-                # First, try to find JSON in the response
-                start_idx = reply.find('{')
-                end_idx = reply.rfind('}') + 1
-                if start_idx == -1 or end_idx == 0:
-                    return jsonify({"error": "Invalid response format"}), 400
-                
-                json_str = reply[start_idx:end_idx]
-                # Clean up the JSON string
-                json_str = json_str.replace("'", '"')  # Replace single quotes with double quotes
-                json_str = json_str.replace("\n", " ")  # Remove newlines
-                json_str = json_str.replace("\\", "\\\\")  # Escape backslashes
-                
-                cheatsheet_data = json.loads(json_str)
-                
-                # Validate the cheatsheet data structure
-                if not isinstance(cheatsheet_data, dict) or "sections" not in cheatsheet_data:
-                    return jsonify({"error": "Invalid cheatsheet format"}), 400
-                
-                if not isinstance(cheatsheet_data["sections"], list):
-                    return jsonify({"error": "Sections must be an array"}), 400
-                
-                # Validate each section
-                for section in cheatsheet_data["sections"]:
-                    if not isinstance(section, dict):
-                        return jsonify({"error": "Invalid section format"}), 400
-                    required_fields = ["title", "description", "layout_hint"]
-                    for field in required_fields:
-                        if field not in section or not isinstance(section[field], str):
-                            return jsonify({"error": f"Missing or invalid {field} in section"}), 400
-                    if "subsections" in section:
-                        if not isinstance(section["subsections"], list):
-                            return jsonify({"error": "Subsections must be an array"}), 400
-                        for subsection in section["subsections"]:
-                            if not isinstance(subsection, dict):
-                                return jsonify({"error": "Invalid subsection format"}), 400
-                            if "title" not in subsection or "description" not in subsection:
-                                return jsonify({"error": "Missing required fields in subsection"}), 400
-                
-                return jsonify({
-                    "cheatsheet": cheatsheet_data["sections"],
-                    "topic": topic
-                })
-                
-            except json.JSONDecodeError as e:
-                print(f"JSON Parse Error: {str(e)}")
-                print(f"Raw response: {reply}")
-                return jsonify({"error": "Failed to parse cheatsheet data"}), 400
-                
-        except Exception as e:
-            print(f"OpenAI API Error: {str(e)}")
-            return jsonify({"error": "Failed to generate cheatsheet"}), 500
 
     except Exception as e:
         print(f"General Error: {str(e)}")
