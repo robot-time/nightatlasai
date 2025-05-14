@@ -7,8 +7,6 @@ import tiktoken
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 import json
-import pickle
-from pathlib import Path
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,68 +16,6 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "default_secret_key_change_in_production")
-
-# Use Render's persistent storage path or fallback to local path
-DATA_DIR = Path(os.getenv("RENDER_STORAGE_PATH", "data"))
-DATA_DIR.mkdir(exist_ok=True)
-
-# File paths for persistent storage
-USERS_FILE = DATA_DIR / "users.pkl"
-CONVERSATIONS_FILE = DATA_DIR / "conversations.pkl"
-MESSAGE_COUNT_FILE = DATA_DIR / "message_count.pkl"
-
-def load_data():
-    """Load data from files"""
-    global users, conversations, message_count
-    
-    try:
-        # Load users
-        if USERS_FILE.exists():
-            with open(USERS_FILE, 'rb') as f:
-                users = pickle.load(f)
-        else:
-            users = {}
-        
-        # Load conversations
-        if CONVERSATIONS_FILE.exists():
-            with open(CONVERSATIONS_FILE, 'rb') as f:
-                conversations = pickle.load(f)
-        else:
-            conversations = {}
-        
-        # Load message counts
-        if MESSAGE_COUNT_FILE.exists():
-            with open(MESSAGE_COUNT_FILE, 'rb') as f:
-                message_count = pickle.load(f)
-        else:
-            message_count = {}
-    except Exception as e:
-        print(f"Error loading data: {str(e)}")
-        # Initialize empty data if loading fails
-        users = {}
-        conversations = {}
-        message_count = {}
-
-def save_data():
-    """Save data to files"""
-    try:
-        # Save users
-        with open(USERS_FILE, 'wb') as f:
-            pickle.dump(users, f)
-        
-        # Save conversations
-        with open(CONVERSATIONS_FILE, 'wb') as f:
-            pickle.dump(conversations, f)
-        
-        # Save message counts
-        with open(MESSAGE_COUNT_FILE, 'wb') as f:
-            pickle.dump(message_count, f)
-    except Exception as e:
-        print(f"Error saving data: {str(e)}")
-        # Continue execution even if save fails
-
-# Initialize data
-load_data()
 
 # Load the system prompt from a file
 with open("prompt.txt", "r", encoding="utf-8") as f:
@@ -166,9 +102,6 @@ def register():
         
         # Initialize message count for the new user
         message_count[username] = {'count': 0, 'timestamp': time.time()}
-        
-        # Save the updated data
-        save_data()
         
         # Log the user in
         session["username"] = username
@@ -273,9 +206,6 @@ def chat():
         # Increment message count for the user
         message_count[username]['count'] += 1
         
-        # Save the updated data
-        save_data()
-        
         return jsonify({
             "reply": reply,
             "remaining_messages": remaining - 1
@@ -318,9 +248,6 @@ def reset_conversation():
         # Keep the system prompt, remove all other messages
         system_message = conversations[username][0]
         conversations[username] = [system_message]
-        
-        # Save the updated data
-        save_data()
         
     return jsonify({"status": "Conversation history reset successfully"})
 
