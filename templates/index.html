@@ -599,37 +599,6 @@
     </div>
   </div>
   <script>
-    // Add copy buttons to all code blocks
-    function addCopyButtons() {
-      document.querySelectorAll("pre > code").forEach((codeBlock) => {
-        const button = document.createElement("button");
-        button.textContent = "Copy";
-        button.style.cssText = `
-          position: absolute;
-          right: 10px;
-          top: 10px;
-          background: #4F57E2;
-          color: white;
-          border: none;
-          padding: 5px 10px;
-          border-radius: 5px;
-          font-size: 0.8rem;
-          cursor: pointer;
-        `;
-  
-        const pre = codeBlock.parentNode;
-        pre.style.position = "relative";
-        pre.appendChild(button);
-  
-        button.addEventListener("click", () => {
-          navigator.clipboard.writeText(codeBlock.textContent);
-          button.textContent = "Copied!";
-          setTimeout(() => (button.textContent = "Copy"), 1500);
-        });
-      });
-    }
-  </script>
-  <script>
     // Auto-resize textarea as user types
     function setupTextarea() {
       const textarea = document.getElementById('messageInput');
@@ -663,7 +632,6 @@
         headerIds: true // Add ids to headers
       });
       
-      addCopyButtons();
       setupTextarea();
     });
   </script>
@@ -717,8 +685,8 @@
       flashcard.className = 'flashcard';
       flashcard.innerHTML = `
         <div class="flashcard-inner">
-          <div class="flashcard-front">${card.front}</div>
-          <div class="flashcard-back">${card.back}</div>
+          <div class="flashcard-front">${marked.parse(card.front)}</div>
+          <div class="flashcard-back">${marked.parse(card.back)}</div>
         </div>
       `;
       
@@ -758,14 +726,42 @@
       
       if (isFlashcardResponse) {
         msg.innerHTML = `
-          ${text}
+          ${marked.parse(text)}
           <div class="flashcard-icon" onclick="toggleFlashcards()">
             ${flashcardIcon}
           </div>
         `;
       } else {
-        msg.textContent = text;
+        msg.innerHTML = marked.parse(text);
       }
+      
+      // Add copy buttons to code blocks
+      msg.querySelectorAll("pre > code").forEach((codeBlock) => {
+        const button = document.createElement("button");
+        button.textContent = "Copy";
+        button.style.cssText = `
+          position: absolute;
+          right: 10px;
+          top: 10px;
+          background: #4F57E2;
+          color: white;
+          border: none;
+          padding: 5px 10px;
+          border-radius: 5px;
+          font-size: 0.8rem;
+          cursor: pointer;
+        `;
+  
+        const pre = codeBlock.parentNode;
+        pre.style.position = "relative";
+        pre.appendChild(button);
+  
+        button.addEventListener("click", () => {
+          navigator.clipboard.writeText(codeBlock.textContent);
+          button.textContent = "Copied!";
+          setTimeout(() => (button.textContent = "Copy"), 1500);
+        });
+      });
       
       chat.appendChild(msg);
       chat.scrollTop = chat.scrollHeight;
