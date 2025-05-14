@@ -872,20 +872,21 @@
       </svg>
     `;
 
-    function appendMessage(text, sender, isFlashcardResponse = false) {
+    function appendMessage(text, sender, isSpecialResponse = false) {
       const chat = document.getElementById("chat");
       const msg = document.createElement("div");
       msg.classList.add("message", sender);
       
-      if (isFlashcardResponse) {
+      if (isSpecialResponse) {
         msg.innerHTML = `
           ${text}
-          <div class="flashcard-icon" onclick="toggleFlashcards()">
+          <div class="flashcard-icon" onclick="${sender === 'bot' ? 'toggleFlashcards()' : 'toggleCheatsheet()'}">
             ${flashcardIcon}
           </div>
         `;
       } else {
-        msg.textContent = text;
+        // Use marked.js to render markdown
+        msg.innerHTML = marked.parse(text);
       }
       
       chat.appendChild(msg);
@@ -918,49 +919,114 @@
       // Show AI typing message
       const aiMessage = document.createElement("div");
       aiMessage.classList.add("message", "bot");
-      aiMessage.textContent = "NightAtlas is typing... Hopefully.";
+      aiMessage.textContent = "NightAtlas is typing...";
       chat.appendChild(aiMessage);
       chat.scrollTop = chat.scrollHeight;
 
-      const res = await fetch("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
-      });
-
-      const data = await res.json();
-
-      // Remove typing message
-      aiMessage.remove();
-
-      if (data.flashcard_request) {
-        // Handle flashcard request
-        appendMessage(data.reply, "bot", true);
+      // Check if this is a cheatsheet request
+      const cheatsheetRegex = /\b(?:cheatsheet|cheat sheet|study guide|study notes|test notes)\b/i;
+      if (cheatsheetRegex.test(message)) {
+        // Extract topic from the message
+        const topic = message.replace(cheatsheetRegex, "").trim();
         
         try {
-          const flashcardResponse = await fetch('/generate_flashcards', {
+          const response = await fetch('/generate_cheatsheet', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic: data.topic }),
+            body: JSON.stringify({ topic: topic }),
           });
           
-          const flashcardData = await flashcardResponse.json();
+          const data = await response.json();
           
-          if (flashcardData.error) {
-            appendMessage(`Sorry, I couldn't generate flashcards: ${flashcardData.error}`, "bot");
+          // Remove typing message
+          aiMessage.remove();
+          
+          if (data.error) {
+            appendMessage(`Sorry, I couldn't generate the cheatsheet: ${data.error}`, "bot");
           } else {
-            currentFlashcards = flashcardData.flashcards;
+            appendMessage(`I've created a study cheatsheet layout for ${topic}. Click the cheatsheet icon to view it.`, "bot", true);
+            displayCheatsheet(data.cheatsheet);
+            const panel = document.getElementById('cheatsheetPanel');
+            panel.classList.add('open');
+          }
+        } catch (error) {
+          aiMessage.remove();
+          appendMessage("Sorry, there was an error generating the cheatsheet.", "bot");
+        }
+        return;
+      }
+
+      // Check if this is a flashcard request
+      const flashcardRegex = /\b(?:flashcard|flash card|study cards|review cards|quiz cards|memory cards|learning cards)\b/i;
+      if (flashcardRegex.test(message)) {
+        // Extract topic from the message
+        const topic = message.replace(flashcardRegex, "").trim();
+        
+        try {
+          const response = await fetch('/generate_flashcards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic: topic }),
+          });
+          
+          const data = await response.json();
+          
+          // Remove typing message
+          aiMessage.remove();
+          
+          if (data.error) {
+            appendMessage(`Sorry, I couldn't generate flashcards: ${data.error}`, "bot");
+          } else {
+            appendMessage(`I've created some flashcards about ${topic}. Click the flashcard icon to view them.`, "bot", true);
+            currentFlashcards = data.flashcards;
             currentCardIndex = 0;
             displayCurrentCard();
             const panel = document.getElementById('flashcardPanel');
             panel.classList.add('open');
           }
         } catch (error) {
+          aiMessage.remove();
           appendMessage("Sorry, there was an error generating the flashcards.", "bot");
         }
-      } else {
-        // Regular chat response
+        return;
+      }
+
+      // Regular chat message
+      try {
+        const response = await fetch("/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ message: message }),
+        });
+
+        const data = await response.json();
+        
+        // Remove typing message
+        aiMessage.remove();
+
+        if (data.error === "rate_limit") {
+          appendMessage(data.reply, "bot");
+          // Disable input until rate limit resets
+          input.disabled = true;
+          setTimeout(() => {
+            input.disabled = false;
+            updateMessageCounter(25); // Reset counter
+          }, data.time_until_reset * 1000);
+          return;
+        }
+
+        // Add AI response to chat
         appendMessage(data.reply, "bot");
+        
+        // Update remaining messages
+        if (data.remaining_messages !== undefined) {
+          updateMessageCounter(data.remaining_messages);
+        }
+      } catch (error) {
+        aiMessage.remove();
+        appendMessage("Error: Could not get response from server.", "bot");
       }
     }
 
@@ -1144,7 +1210,70 @@
         return;
       }
 
-      // Rest of your existing sendMessage function...
+      // Check if this is a flashcard request
+      const flashcardRegex = /\b(?:flashcard|flash card|study cards|review cards|quiz cards|memory cards|learning cards)\b/i;
+      if (flashcardRegex.test(message)) {
+        // Extract topic from the message
+        const topic = message.replace(flashcardRegex, "").trim();
+        
+        try {
+          const response = await fetch('/generate_flashcards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic: topic }),
+          });
+          
+          const data = await response.json();
+          
+          if (data.error) {
+            appendMessage(`Sorry, I couldn't generate flashcards: ${data.error}`, "bot");
+          } else {
+            appendMessage(`I've created some flashcards about ${topic}. Click the flashcard icon to view them.`, "bot", true);
+            currentFlashcards = data.flashcards;
+            currentCardIndex = 0;
+            displayCurrentCard();
+            const panel = document.getElementById('flashcardPanel');
+            panel.classList.add('open');
+          }
+        } catch (error) {
+          appendMessage("Sorry, there was an error generating the flashcards.", "bot");
+        }
+        return;
+      }
+
+      // Regular chat message
+      try {
+        const response = await fetch("/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ message: message }),
+        });
+
+        const data = await response.json();
+        
+        if (data.error === "rate_limit") {
+          appendMessage(data.reply, "bot");
+          // Disable input until rate limit resets
+          input.disabled = true;
+          setTimeout(() => {
+            input.disabled = false;
+            updateMessageCounter(25); // Reset counter
+          }, data.time_until_reset * 1000);
+          return;
+        }
+
+        // Add AI response to chat
+        appendMessage(data.reply, "bot");
+        
+        // Update remaining messages
+        if (data.remaining_messages !== undefined) {
+          updateMessageCounter(data.remaining_messages);
+        }
+      } catch (error) {
+        appendMessage("Error: Could not get response from server.", "bot");
+      }
     }
   </script>
 </body>
