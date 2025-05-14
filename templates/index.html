@@ -14,7 +14,6 @@
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-c.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-cpp.min.js"></script>
 
-
   <style>
     body {
       margin: 0;
@@ -27,6 +26,31 @@
       height: 100vh;
       overflow: hidden;
       position: relative;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem;
+      background-color: #1a1a1a;
+    }
+
+    .header-title {
+      font-size: 1.2rem;
+      font-weight: bold;
+    }
+
+    .header-actions button {
+      background: #4F57E2;
+      border: none;
+      color: white;
+      padding: 0.4rem 0.8rem;
+      border-radius: 50px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.85rem;
+      margin-left: 0.5rem;
     }
 
     h1#welcome {
@@ -136,7 +160,7 @@
       }
     }
     
-        /* Additional styling for message content */
+    /* Additional styling for message content */
     .message p {
       margin: 0 0 0.8em 0;
     }
@@ -200,9 +224,24 @@
       background-color: #222;
     }
     
+    .username-display {
+      opacity: 0.7;
+      font-size: 0.8rem;
+      margin-left: 0.5rem;
+    }
   </style>
 </head>
 <body>
+  <!-- Header with user info and controls -->
+  <header>
+    <div class="header-title">
+      NightAtlas AI <span class="username-display">{{ username }}</span>
+    </div>
+    <div class="header-actions">
+      <button onclick="resetConversation()">New Chat</button>
+      <button onclick="window.location.href='/logout'">Logout</button>
+    </div>
+  </header>
 
   <h1 id="welcome">What can I help with?</h1>
 
@@ -267,7 +306,7 @@
       });
     }
   </script>
-    <script>
+  <script>
     // Auto-resize textarea as user types
     function setupTextarea() {
       const textarea = document.getElementById('messageInput');
@@ -357,7 +396,6 @@
       appendMessage(data.reply, "bot");
     }
 
-
     function appendMessage(text, sender) {
       const chat = document.getElementById("chat");
       const msg = document.createElement("div");
@@ -436,6 +474,33 @@
           setTimeout(() => (button.textContent = 'Copy'), 1500);
         });
       });
+    }
+    
+    // Function to reset conversation
+    async function resetConversation() {
+      const chat = document.getElementById("chat");
+      const welcome = document.getElementById("welcome");
+      const inputWrapper = document.getElementById("inputWrapper");
+      
+      // Make API call to reset conversation on the server
+      const res = await fetch("/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      // Clear the chat interface
+      chat.innerHTML = "";
+      
+      // Reset the UI state
+      chat.style.display = "none";
+      welcome.style.display = "block";
+      inputWrapper.classList.remove("moved");
+      hasStarted = false;
+      
+      // Optional: update welcome message with a new random one
+      const welcomeElement = document.getElementById('welcome');
+      const randomIndex = Math.floor(Math.random() * welcomeMessages.length);
+      welcomeElement.textContent = welcomeMessages[randomIndex];
     }
   </script>
 </body>

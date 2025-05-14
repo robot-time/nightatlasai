@@ -1,9 +1,11 @@
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, render_template, jsonify, redirect, url_for, session, flash
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
 import time
 import tiktoken
+import uuid
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Load environment variables from .env file
 load_dotenv()
@@ -12,10 +14,14 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "default_secret_key_change_in_production")
 
 # Load the system prompt from a file
 with open("prompt.txt", "r", encoding="utf-8") as f:
     system_prompt = f.read().strip()
+
+# In-memory storage for user accounts (use a database in production)
+users = {}
 
 # In-memory storage for conversations and rate limiting (use a database in production)
 conversations = {}
@@ -43,33 +49,91 @@ def num_tokens_from_messages(messages):
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+    # Redirect to login if not logged in
+    if "username" not in session:
+        return redirect(url_for("login"))
+    return render_template("index.html", username=session["username"])
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        
+        # Check if username already exists
+        if username in users:
+            flash("Username already exists")
+            return redirect(url_for("register"))
+        
+        # Hash the password and store the user
+        users[username] = {
+            "password_hash": generate_password_hash(password),
+            "created_at": time.time()
+        }
+        
+        # Initialize conversation history for the new user
+        conversations[username] = [{"role": "system", "content": system_prompt}]
+        
+        # Initialize message count for the new user
+        message_count[username] = {'count': 0, 'timestamp': time.time()}
+        
+        # Log the user in
+        session["username"] = username
+        
+        return redirect(url_for("home"))
+    
+    return render_template("register.html")
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        
+        # Check if user exists and password is correct
+        if username in users and check_password_hash(users[username]["password_hash"], password):
+            session["username"] = username
+            return redirect(url_for("home"))
+        else:
+            flash("Invalid username or password")
+            return redirect(url_for("login"))
+    
+    return render_template("login.html")
+
+@app.route("/logout")
+def logout():
+    session.pop("username", None)
+    return redirect(url_for("login"))
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    user_id = request.json.get("user_id", "default_user")  # Unique user identifier
+    # Check if user is logged in
+    if "username" not in session:
+        return jsonify({"reply": "Not authenticated"}), 401
+    
+    username = session["username"]
     user_input = request.json.get("message", "")
     
     # Initialize user data if not exists
-    if user_id not in message_count:
-        message_count[user_id] = {'count': 0, 'timestamp': time.time()}
+    if username not in message_count:
+        message_count[username] = {'count': 0, 'timestamp': time.time()}
     
-    if user_id not in conversations:
-        conversations[user_id] = [{"role": "system", "content": system_prompt}]
+    if username not in conversations:
+        conversations[username] = [{"role": "system", "content": system_prompt}]
     
     # Check if the limit period has passed (reset counter)
-    if time.time() - message_count[user_id]['timestamp'] > reset_time:
-        message_count[user_id] = {'count': 0, 'timestamp': time.time()}
+    if time.time() - message_count[username]['timestamp'] > reset_time:
+        message_count[username] = {'count': 0, 'timestamp': time.time()}
 
     # Check if the user has exceeded the message limit
-    if message_count[user_id]['count'] >= message_limit:
+    if message_count[username]['count'] >= message_limit:
         return jsonify({"reply": "Message limit exceeded. Please try again later."}), 403
 
     # Add the user message to conversation history
-    conversations[user_id].append({"role": "user", "content": user_input})
+    conversations[username].append({"role": "user", "content": user_input})
     
     # Prepare messages for API, ensuring we stay within token limits
-    messages = trim_conversation_history(conversations[user_id])
+    messages = trim_conversation_history(conversations[username])
     
     try:
         # Make API call with conversation history
@@ -81,10 +145,10 @@ def chat():
         reply = response.choices[0].message.content
         
         # Add assistant's response to conversation history
-        conversations[user_id].append({"role": "assistant", "content": reply})
+        conversations[username].append({"role": "assistant", "content": reply})
         
         # Increment message count for the user
-        message_count[user_id]['count'] += 1
+        message_count[username]['count'] += 1
         
         return jsonify({"reply": reply})
 
@@ -115,12 +179,16 @@ def trim_conversation_history(messages):
 
 @app.route("/reset", methods=["POST"])
 def reset_conversation():
-    user_id = request.json.get("user_id", "default_user")
+    # Check if user is logged in
+    if "username" not in session:
+        return jsonify({"reply": "Not authenticated"}), 401
     
-    if user_id in conversations:
+    username = session["username"]
+    
+    if username in conversations:
         # Keep the system prompt, remove all other messages
-        system_message = conversations[user_id][0]
-        conversations[user_id] = [system_message]
+        system_message = conversations[username][0]
+        conversations[username] = [system_message]
         
     return jsonify({"status": "Conversation history reset successfully"})
 
