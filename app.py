@@ -1026,7 +1026,7 @@ def generate_flashcards():
         flashcard_prompt = f"""Create a set of educational flashcards about: {topic}
 
 Requirements:
-1. Generate 5-7 flashcards covering key concepts
+1. Generate 7-12 flashcards covering key concepts
 2. Each card should have a clear question on the front and a detailed answer on the back
 3. Format the response as a JSON object with a 'cards' array
 4. Each card should have 'front' and 'back' properties
@@ -1056,7 +1056,7 @@ Please provide the flashcards in this exact JSON format."""
                     "content": flashcard_prompt
                 }],
                 temperature=0.7,
-                max_tokens=1000
+                max_tokens=1500
             )
             
             reply = response.choices[0].message.content.strip()
