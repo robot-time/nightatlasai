@@ -17,13 +17,53 @@ try:
         firebase_admin_initialized = True
         print(f"Firebase Admin initialized with service account file: {FIREBASE_SERVICE_ACCOUNT_KEY}")
     
-    # Option 2: Service account credentials as JSON string in environment variable
+    # Option 2: Service account credentials as JSON string in FIREBASE_SERVICE_ACCOUNT_JSON
     elif os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"):
         service_account_info = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
         cred = credentials.Certificate(service_account_info)
         firebase_admin.initialize_app(cred)
         firebase_admin_initialized = True
-        print("Firebase Admin initialized with service account JSON from environment variable")
+        print("Firebase Admin initialized with service account JSON from FIREBASE_SERVICE_ACCOUNT_JSON")
+    
+    # Option 3: Service account credentials as JSON string in FIREBASE_SERVICE_ACCOUNT_KEY
+    elif FIREBASE_SERVICE_ACCOUNT_KEY and FIREBASE_SERVICE_ACCOUNT_KEY.strip().startswith('{'):
+        try:
+            # Try to parse the JSON directly
+            try:
+                service_account_info = json.loads(FIREBASE_SERVICE_ACCOUNT_KEY)
+            except json.JSONDecodeError:
+                # If direct parsing fails, try to clean up the string
+                # Sometimes environment variables can have escape characters
+                cleaned_json = FIREBASE_SERVICE_ACCOUNT_KEY.replace('\\"', '"').replace("\\n", "\n")
+                service_account_info = json.loads(cleaned_json)
+                
+            cred = credentials.Certificate(service_account_info)
+            firebase_admin.initialize_app(cred)
+            firebase_admin_initialized = True
+            print("Firebase Admin initialized with service account JSON from FIREBASE_SERVICE_ACCOUNT_KEY")
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Warning: FIREBASE_SERVICE_ACCOUNT_KEY appears to contain JSON but could not be parsed: {str(e)}")
+            # Fallback: Try to write the content to a temporary file
+            try:
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as temp_file:
+                    temp_file.write(FIREBASE_SERVICE_ACCOUNT_KEY.encode('utf-8'))
+                    temp_file_path = temp_file.name
+                
+                print(f"Wrote service account key to temporary file: {temp_file_path}")
+                cred = credentials.Certificate(temp_file_path)
+                firebase_admin.initialize_app(cred)
+                firebase_admin_initialized = True
+                print(f"Firebase Admin initialized with temporary service account file")
+                
+                # Clean up the temporary file after initialization
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+            except Exception as e2:
+                print(f"Failed to create temporary file for service account key: {str(e2)}")
+                firebase_admin_initialized = False
     
     else:
         print("Warning: Firebase service account credentials not found. Admin SDK features will be unavailable.")
