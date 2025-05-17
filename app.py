@@ -376,6 +376,7 @@ def upload_pdf():
                 
                 # Add this as a user message in the conversation
                 conversations[username].append({"role": "user", "content": rubric_info})
+                print(f"Added rubric info to conversation: {rubric_info[:100]}...")
                 
                 # Add a system message to guide the AI
                 system_guidance = ("Remember to reference this rubric when providing feedback or "
@@ -389,6 +390,11 @@ def upload_pdf():
                 # Add a basic summary
                 pdf_context = f"I've uploaded a PDF document named '{filename}'. "
                 pdf_context += f"It contains approximately {len(full_text.split())} words."
+                
+                # Print debug info
+                print(f"PDF Content Preview: {full_text[:200]}...")
+                print(f"Adding PDF context to conversation: {pdf_context}")
+                
                 conversations[username].append({"role": "user", "content": pdf_context})
                 
                 # For larger documents, summarize content to avoid token limits
@@ -404,14 +410,19 @@ def upload_pdf():
                         )
                         
                         summary = summary_response.choices[0].message.content
+                        print(f"Generated PDF summary: {summary[:100]}...")
                         
                         # Add the summary to the conversation
                         system_note = "I've analyzed the document and here's a summary of its content:"
                         conversations[username].append({"role": "system", "content": system_note})
                         conversations[username].append({"role": "assistant", "content": summary})
-                        
                     except Exception as e:
                         print(f"Error generating PDF summary: {str(e)}")
+                else:
+                    # For smaller documents, add the full content
+                    pdf_content_msg = f"The content of the document is:\n\n{full_text}"
+                    conversations[username].append({"role": "user", "content": pdf_content_msg})
+                    print(f"Added full PDF content to conversation (length: {len(full_text)})")
         
         return jsonify({
             "success": True,
@@ -474,6 +485,9 @@ def chat():
     username = session["username"]
     user_input = request.json.get("message", "")
     
+    # For debugging
+    print(f"User input: {user_input}")
+    
     # Initialize user data if not exists
     if username not in message_count:
         message_count[username] = {'count': 0, 'timestamp': time.time()}
@@ -522,25 +536,64 @@ def chat():
     # Add the user message to conversation history
     conversations[username].append({"role": "user", "content": user_input})
     
+    # Check if question relates to PDFs
+    pdf_keywords = ['pdf', 'document', 'upload', 'file', 'content', 'read', 'understand', 'analyze', 
+                   'what does it say', 'paper', 'text', 'in the document']
+    pdf_related = any(keyword in user_input.lower() for keyword in pdf_keywords)
+    
+    # Advanced detection for document references without explicit keywords
+    if not pdf_related and username in pdf_storage and pdf_storage[username]:
+        # Check if user is referring to a document without using keywords
+        # For example: "What does paragraph 2 say?" or "Summarize this for me"
+        document_reference_phrases = [
+            "what does", "tell me about", "summarize", "explain", "analyze",
+            "paragraph", "page", "section", "chapter"
+        ]
+        
+        # Look for phrases that might imply referring to a document
+        if any(phrase in user_input.lower() for phrase in document_reference_phrases):
+            # Get the most recent PDF details
+            recent_pdfs = sorted(pdf_storage[username].items(), key=lambda x: x[1]['upload_time'], reverse=True)
+            if recent_pdfs and (time.time() - recent_pdfs[0][1]['upload_time']) < 300:  # Within 5 minutes
+                # It's likely they're referring to the recently uploaded PDF
+                pdf_related = True
+                print("Detected implicit PDF reference")
+    
     # Check if this is a question related to uploaded rubrics
     rubric_keywords = ['rubric', 'criteria', 'grade', 'assessment', 'requirement', 'band', 'score', 'mark']
     is_rubric_question = any(keyword in user_input.lower() for keyword in rubric_keywords)
     
-    # If user is asking about rubrics and has uploaded rubric PDFs, include the context
-    if is_rubric_question and username in pdf_storage:
-        rubric_pdfs = [pdf for pdf_id, pdf in pdf_storage[username].items() 
-                      if pdf['file_type'] == 'rubric']
-        
-        if rubric_pdfs:
-            # Find the most recent rubric
-            latest_rubric = max(rubric_pdfs, key=lambda x: x['upload_time'])
-            
-            # Add a system message with rubric details to help the AI give better responses
-            system_rubric_guidance = "The user has previously uploaded a grading rubric. "
-            system_rubric_guidance += "When responding to this question about assessment criteria, "
-            system_rubric_guidance += "refer to the rubric details provided earlier in the conversation."
-            
-            conversations[username].append({"role": "system", "content": system_rubric_guidance})
+    # Reference PDF content if the question is related
+    if (pdf_related or is_rubric_question) and username in pdf_storage:
+        # Get the most recent PDF uploaded
+        if pdf_storage[username]:
+            recent_pdfs = sorted(pdf_storage[username].items(), key=lambda x: x[1]['upload_time'], reverse=True)
+            if recent_pdfs:
+                recent_pdf = recent_pdfs[0][1]
+                pdf_type = recent_pdf['file_type']
+                pdf_name = recent_pdf['filename']
+                
+                # Add a reminder about the uploaded PDF
+                pdf_reminder = f"Remember that the user has uploaded a PDF named '{pdf_name}'. "
+                if pdf_type == 'rubric':
+                    pdf_reminder += "This is a grading rubric with assessment criteria that should be referenced when answering questions about grades or requirements."
+                else:
+                    pdf_reminder += "Please use the content of this document to help answer their question."
+                    
+                conversations[username].append({"role": "system", "content": pdf_reminder})
+                
+                # If it's a small enough document, include relevant content again
+                processed_data = recent_pdf['processed_data']
+                if processed_data:
+                    if pdf_type == 'rubric' and 'tables' in processed_data:
+                        rubric_summary = "The rubric contains these grade criteria:\n"
+                        for item in processed_data['tables']:
+                            rubric_summary += f"- {item['grade']}: {item['description'][:100]}...\n"
+                        conversations[username].append({"role": "system", "content": rubric_summary})
+                    elif 'text' in processed_data and len(processed_data['text']) < 2000:
+                        conversations[username].append({"role": "system", "content": f"Document content (preview): {processed_data['text'][:1000]}..."})
+                
+                print(f"Added PDF context reminder for: {pdf_name}")
     
     # Prepare messages for API, ensuring we stay within token limits
     messages = trim_conversation_history(conversations[username])
@@ -577,18 +630,50 @@ def trim_conversation_history(messages):
     trimmed_messages = [system_message]
     current_tokens = num_tokens_from_messages(trimmed_messages)
     
-    # Add as many recent messages as possible, starting from the most recent
-    for message in reversed(messages[1:]):
+    # Find PDF-related messages first (prioritize keeping these)
+    pdf_related_messages = []
+    regular_messages = []
+    
+    for message in messages[1:]:
+        content = message.get("content", "").lower()
+        role = message.get("role", "")
+        
+        # Identify PDF-related messages to prioritize
+        if role == "system" and any(keyword in content for keyword in ["pdf", "document", "rubric", "grade", "criteria"]):
+            pdf_related_messages.append(message)
+        elif role == "user" and ("upload" in content and any(keyword in content for keyword in ["pdf", "document", "rubric"])):
+            pdf_related_messages.append(message)
+        # Check if this is a message containing PDF content
+        elif len(content) > 200 and "content of the document" in content:
+            # This is likely a PDF content message, keep a shorter version
+            shorter_content = content[:500] + "... [PDF content truncated for brevity]"
+            pdf_related_messages.append({"role": message["role"], "content": shorter_content})
+        else:
+            regular_messages.append(message)
+    
+    # Add the most recent PDF-related messages first
+    for message in reversed(pdf_related_messages[-3:]):  # Keep up to 3 most recent PDF messages
+        message_tokens = num_tokens_from_messages([message])
+        if current_tokens + message_tokens <= MAX_TOKENS:
+            trimmed_messages.append(message)
+            current_tokens += message_tokens
+    
+    # Then add as many recent messages as possible, starting from the most recent
+    for message in reversed(regular_messages):
         message_tokens = num_tokens_from_messages([message])
         
         if current_tokens + message_tokens <= MAX_TOKENS:
-            trimmed_messages.insert(1, message)  # Insert after system message
+            trimmed_messages.append(message)
             current_tokens += message_tokens
         else:
             # If we can't add any more messages, break
             break
     
-    return trimmed_messages
+    # Sort messages to maintain conversation flow (excluding system prompt)
+    conversation_messages = sorted(trimmed_messages[1:], 
+                                  key=lambda msg: messages.index(msg) if msg in messages else 999)
+    
+    return [system_message] + conversation_messages
 
 @app.route("/reset", methods=["POST"])
 def reset_conversation():
