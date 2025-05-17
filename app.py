@@ -711,11 +711,35 @@ def chat():
         print(f"Sending request to OpenAI with {len(messages)} messages")
         
         try:
-            # Make API call with conversation history
-            response = client.chat.completions.create(
-                model="gpt-4.1-mini",
-                messages=messages
-            )
+            # Check if client is initialized
+            if client is None:
+                return jsonify({
+                    "reply": "The AI service is not available at the moment. Please check that the OpenAI API key is configured correctly.",
+                    "error": "openai_not_configured"
+                }), 500
+            
+            # Try different models in case the preferred one isn't available
+            models_to_try = ["gpt-4.1-mini", "gpt-4o-mini", "gpt-3.5-turbo"]
+            response = None
+            last_error = None
+            
+            for model in models_to_try:
+                try:
+                    # Make API call with conversation history
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=messages
+                    )
+                    print(f"Successfully used model: {model}")
+                    break
+                except Exception as e:
+                    last_error = e
+                    print(f"Failed to use model {model}: {str(e)}")
+                    continue
+            
+            # If all models failed
+            if response is None:
+                raise last_error or Exception("All models failed")
             
             reply = response.choices[0].message.content
             print(f"Received response from OpenAI: {reply[:100]}...")
@@ -959,6 +983,52 @@ Please provide the flashcards in this exact JSON format."""
     except Exception as e:
         print(f"General Error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/test_openai", methods=["GET"])
+def test_openai_connection():
+    """Endpoint to test OpenAI API connectivity"""
+    try:
+        if client is None:
+            return jsonify({
+                "success": False,
+                "error": "OpenAI client not initialized",
+                "api_key_set": bool(os.getenv("OPENAI_API_KEY"))
+            }), 500
+            
+        # Try a simple API call
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": "Say hello"}],
+            max_tokens=10
+        )
+        
+        return jsonify({
+            "success": True,
+            "response": response.choices[0].message.content,
+            "model": "gpt-4.1-mini"
+        })
+        
+    except Exception as e:
+        error_message = str(e)
+        error_type = type(e).__name__
+        
+        return jsonify({
+            "success": False,
+            "error": error_message,
+            "error_type": error_type,
+            "available_models": get_available_models()
+        }), 500
+
+def get_available_models():
+    """Try to fetch available models"""
+    try:
+        if client is None:
+            return ["Client not initialized"]
+        
+        models = client.models.list()
+        return [model.id for model in models.data]
+    except Exception as e:
+        return [f"Error listing models: {str(e)}"]
 
 @app.route("/api_status", methods=["GET"])
 def api_status():
