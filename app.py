@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 import json
 import PyPDF2
 import re
+import firebase_auth
 
 # Load environment variables from .env file
 load_dotenv()
@@ -37,9 +38,6 @@ def allowed_file(filename):
 with open("prompt.txt", "r", encoding="utf-8") as f:
     system_prompt = f.read().strip()
 
-# In-memory storage for user accounts (use a database in production)
-users = {}
-
 # In-memory storage for conversations and rate limiting (use a database in production)
 conversations = {}
 message_count = {}
@@ -55,6 +53,29 @@ MAX_TOKENS = 2500  # Adjust based on your model's context window
 # Initialize tokenizer for the model
 # Since tiktoken doesn't recognize 'gpt-4.1-mini', we use 'o200k_base' encoding
 tokenizer = tiktoken.get_encoding("o200k_base")
+
+# User session helper functions
+def is_logged_in():
+    """Check if the user is logged in"""
+    return 'user_id' in session and 'email' in session
+
+def get_user_id():
+    """Get the current user's ID"""
+    if is_logged_in():
+        return session['user_id']
+    return None
+
+def get_user_email():
+    """Get the current user's email"""
+    if is_logged_in():
+        return session['email']
+    return None
+
+def get_username():
+    """Get the current username"""
+    if is_logged_in():
+        return session.get('username', '')
+    return None
 
 def extract_text_from_pdf(file_path):
     """Extract text content from a PDF file"""
@@ -240,12 +261,37 @@ def num_tokens_from_messages(messages):
     num_tokens += 2  # Add 2 for the final assistant message role overhead
     return num_tokens
 
-def get_remaining_messages(username):
+def get_remaining_messages(user_id):
     """Get the number of remaining messages and time until reset"""
-    if username not in message_count:
+    # Try to get user data from Firebase first
+    user_data = firebase_auth.get_user_data(user_id)
+    
+    # If we have user data from Firebase, use those limits
+    if user_data:
+        message_limit = user_data.get('message_limit', 25)
+        reset_time_seconds = user_data.get('reset_time', 14400)  # Default 4 hours
+        current_count = user_data.get('message_count', 0)
+        last_reset = user_data.get('last_reset', 0)
+        
+        # If last_reset is a Firestore timestamp, convert to epoch seconds
+        if hasattr(last_reset, 'seconds'):
+            last_reset = last_reset.seconds
+            
+        # Check if it's time to reset the counter
+        time_elapsed = time.time() - last_reset
+        if time_elapsed >= reset_time_seconds:
+            return message_limit, 0
+        
+        remaining = message_limit - current_count
+        time_until_reset = reset_time_seconds - time_elapsed
+        
+        return remaining, time_until_reset
+    
+    # Fallback to in-memory tracking
+    if user_id not in message_count:
         return message_limit, 0
     
-    count_data = message_count[username]
+    count_data = message_count[user_id]
     time_elapsed = time.time() - count_data['timestamp']
     
     if time_elapsed >= reset_time:
@@ -268,68 +314,90 @@ def format_time_remaining(seconds):
 @app.route("/")
 def home():
     # Redirect to login if not logged in
-    if "username" not in session:
+    if not is_logged_in():
         return redirect(url_for("login"))
-    return render_template("index.html", username=session["username"])
+    return render_template("index.html", username=get_username())
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        username = request.form["username"]
+        email = request.form["email"]
         password = request.form["password"]
+        username = request.form["username"]
         
-        # Check if username already exists
-        if username in users:
-            flash("Username already exists")
+        # Register the user with Firebase
+        result = firebase_auth.register_user(email, password, username)
+        
+        if result['success']:
+            # Store user info in session
+            user = result['user']
+            session['user_id'] = user['localId']
+            session['email'] = email
+            session['username'] = username
+            session['token'] = user['idToken']
+            
+            # Initialize conversation history for the new user
+            user_id = user['localId']
+            if user_id not in conversations:
+                conversations[user_id] = [{"role": "system", "content": system_prompt}]
+            
+            return redirect(url_for("home"))
+        else:
+            # Registration failed
+            flash(result['message'])
             return redirect(url_for("register"))
-        
-        # Hash the password and store the user
-        users[username] = {
-            "password_hash": generate_password_hash(password),
-            "created_at": time.time()
-        }
-        
-        # Initialize conversation history for the new user
-        conversations[username] = [{"role": "system", "content": system_prompt}]
-        
-        # Initialize message count for the new user
-        message_count[username] = {'count': 0, 'timestamp': time.time()}
-        
-        # Log the user in
-        session["username"] = username
-        
-        return redirect(url_for("home"))
     
     return render_template("register.html")
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = request.form["username"]
+        email = request.form["email"]
         password = request.form["password"]
         
-        # Check if user exists and password is correct
-        if username in users and check_password_hash(users[username]["password_hash"], password):
-            session["username"] = username
+        # Login the user with Firebase
+        result = firebase_auth.login_user(email, password)
+        
+        if result['success']:
+            # Store user info in session
+            user = result['user']
+            user_data = result.get('user_data', {})
+            
+            session['user_id'] = user['localId']
+            session['email'] = email
+            session['token'] = user['idToken']
+            
+            # Get username from user data or use email as fallback
+            username = user_data.get('username', email.split('@')[0])
+            session['username'] = username
+            
+            # Initialize conversation history if needed
+            user_id = user['localId']
+            if user_id not in conversations:
+                conversations[user_id] = [{"role": "system", "content": system_prompt}]
+            
             return redirect(url_for("home"))
         else:
-            flash("Invalid username or password")
+            # Login failed
+            flash(result['message'])
             return redirect(url_for("login"))
     
     return render_template("login.html")
 
 @app.route("/logout")
 def logout():
-    session.pop("username", None)
+    # Clear session data
+    session.clear()
     return redirect(url_for("login"))
 
 @app.route("/upload_pdf", methods=["POST"])
 def upload_pdf():
     """Handle PDF uploads and process them"""
-    if "username" not in session:
+    if not is_logged_in():
         return jsonify({"error": "Not authenticated"}), 401
     
-    username = session["username"]
+    user_id = get_user_id()
+    username = get_username()
     
     # Check if the post request has the file part
     if 'pdf_file' not in request.files:
@@ -355,6 +423,7 @@ def upload_pdf():
         pdf_data = analyze_pdf_content(file_path, file_type)
         
         # Store the processed data
+        # Use in-memory storage for current session
         if username not in pdf_storage:
             pdf_storage[username] = {}
             
@@ -366,8 +435,19 @@ def upload_pdf():
             "upload_time": time.time()
         }
         
+        # Also save to Firestore for persistence
+        pdf_data_for_firebase = {
+            "filename": filename,
+            "file_path": file_path,  # Note: This is a local path, consider using Firebase Storage for the actual file
+            "file_type": file_type,
+            "processed_data": pdf_data,
+            "upload_time": time.time()
+        }
+        firebase_auth.save_pdf_data(user_id, file_id, pdf_data_for_firebase)
+        
         # Add context to the conversation for this PDF
-        if username in conversations:
+        user_id = get_user_id()
+        if user_id in conversations:
             if file_type == "rubric":
                 # Format rubric information for the AI
                 rubric_info = "I've uploaded a grading rubric with the following criteria:\n\n"
@@ -375,14 +455,14 @@ def upload_pdf():
                     rubric_info += f"- {item['grade']}: {item['description']}\n"
                 
                 # Add this as a user message in the conversation
-                conversations[username].append({"role": "user", "content": rubric_info})
+                conversations[user_id].append({"role": "user", "content": rubric_info})
                 print(f"Added rubric info to conversation: {rubric_info[:100]}...")
                 
                 # Add a system message to guide the AI
                 system_guidance = ("Remember to reference this rubric when providing feedback or "
                                   "guidance on assignments. Consider the specific requirements for "
                                   "each grade band when answering questions about assessment criteria.")
-                conversations[username].append({"role": "system", "content": system_guidance})
+                conversations[user_id].append({"role": "system", "content": system_guidance})
             else:
                 # For generic PDFs - handle large documents by chunking
                 full_text = pdf_data.get("text", "")
@@ -395,7 +475,7 @@ def upload_pdf():
                 print(f"PDF Content Preview: {full_text[:200]}...")
                 print(f"Adding PDF context to conversation: {pdf_context}")
                 
-                conversations[username].append({"role": "user", "content": pdf_context})
+                conversations[user_id].append({"role": "user", "content": pdf_context})
                 
                 # For larger documents, summarize content to avoid token limits
                 if len(full_text.split()) > 1000:
@@ -414,14 +494,14 @@ def upload_pdf():
                         
                         # Add the summary to the conversation
                         system_note = "I've analyzed the document and here's a summary of its content:"
-                        conversations[username].append({"role": "system", "content": system_note})
-                        conversations[username].append({"role": "assistant", "content": summary})
+                        conversations[user_id].append({"role": "system", "content": system_note})
+                        conversations[user_id].append({"role": "assistant", "content": summary})
                     except Exception as e:
                         print(f"Error generating PDF summary: {str(e)}")
                 else:
                     # For smaller documents, add the full content
                     pdf_content_msg = f"The content of the document is:\n\n{full_text}"
-                    conversations[username].append({"role": "user", "content": pdf_content_msg})
+                    conversations[user_id].append({"role": "user", "content": pdf_content_msg})
                     print(f"Added full PDF content to conversation (length: {len(full_text)})")
         
         return jsonify({
@@ -437,10 +517,10 @@ def upload_pdf():
 @app.route("/pdf_content/<file_id>", methods=["GET"])
 def get_pdf_content(file_id):
     """Retrieve processed content of a specific PDF"""
-    if "username" not in session:
+    if not is_logged_in():
         return jsonify({"error": "Not authenticated"}), 401
     
-    username = session["username"]
+    username = get_username()
     
     if username not in pdf_storage or file_id not in pdf_storage[username]:
         return jsonify({"error": "PDF not found"}), 404
@@ -456,10 +536,10 @@ def get_pdf_content(file_id):
 @app.route("/list_pdfs", methods=["GET"])
 def list_pdfs():
     """List all PDFs uploaded by the current user"""
-    if "username" not in session:
+    if not is_logged_in():
         return jsonify({"error": "Not authenticated"}), 401
     
-    username = session["username"]
+    username = get_username()
     
     if username not in pdf_storage:
         return jsonify({"pdfs": []})
@@ -479,28 +559,30 @@ def list_pdfs():
 @app.route("/chat", methods=["POST"])
 def chat():
     # Check if user is logged in
-    if "username" not in session:
+    if not is_logged_in():
         return jsonify({"reply": "Not authenticated"}), 401
     
-    username = session["username"]
+    user_id = get_user_id()
+    username = get_username()
     user_input = request.json.get("message", "")
     
     # For debugging
     print(f"User input: {user_input}")
     
     # Initialize user data if not exists
-    if username not in message_count:
-        message_count[username] = {'count': 0, 'timestamp': time.time()}
+    if user_id not in message_count:
+        message_count[user_id] = {'count': 0, 'timestamp': time.time()}
     
-    if username not in conversations:
-        conversations[username] = [{"role": "system", "content": system_prompt}]
+    if user_id not in conversations:
+        conversations[user_id] = [{"role": "system", "content": system_prompt}]
     
     # Check if the limit period has passed (reset counter)
-    if time.time() - message_count[username]['timestamp'] > reset_time:
-        message_count[username] = {'count': 0, 'timestamp': time.time()}
+    now = time.time()
+    if now - message_count[user_id]['timestamp'] > reset_time:
+        message_count[user_id] = {'count': 0, 'timestamp': now}
 
     # Check if the user has exceeded the message limit
-    remaining, time_until_reset = get_remaining_messages(username)
+    remaining, time_until_reset = get_remaining_messages(user_id)
     if remaining <= 0:
         time_str = format_time_remaining(time_until_reset)
         return jsonify({
@@ -534,7 +616,7 @@ def chat():
         })
     
     # Add the user message to conversation history
-    conversations[username].append({"role": "user", "content": user_input})
+    conversations[user_id].append({"role": "user", "content": user_input})
     
     # Check if question relates to PDFs
     pdf_keywords = ['pdf', 'document', 'upload', 'file', 'content', 'read', 'understand', 'analyze', 
@@ -542,7 +624,7 @@ def chat():
     pdf_related = any(keyword in user_input.lower() for keyword in pdf_keywords)
     
     # Advanced detection for document references without explicit keywords
-    if not pdf_related and username in pdf_storage and pdf_storage[username]:
+    if not pdf_related and user_id in pdf_storage:
         # Check if user is referring to a document without using keywords
         # For example: "What does paragraph 2 say?" or "Summarize this for me"
         document_reference_phrases = [
@@ -553,7 +635,7 @@ def chat():
         # Look for phrases that might imply referring to a document
         if any(phrase in user_input.lower() for phrase in document_reference_phrases):
             # Get the most recent PDF details
-            recent_pdfs = sorted(pdf_storage[username].items(), key=lambda x: x[1]['upload_time'], reverse=True)
+            recent_pdfs = sorted(pdf_storage[user_id].items(), key=lambda x: x[1]['upload_time'], reverse=True)
             if recent_pdfs and (time.time() - recent_pdfs[0][1]['upload_time']) < 300:  # Within 5 minutes
                 # It's likely they're referring to the recently uploaded PDF
                 pdf_related = True
@@ -564,14 +646,19 @@ def chat():
     is_rubric_question = any(keyword in user_input.lower() for keyword in rubric_keywords)
     
     # Reference PDF content if the question is related
-    if (pdf_related or is_rubric_question) and username in pdf_storage:
+    if (pdf_related or is_rubric_question) and user_id in pdf_storage:
         # Get the most recent PDF uploaded
-        if pdf_storage[username]:
-            recent_pdfs = sorted(pdf_storage[username].items(), key=lambda x: x[1]['upload_time'], reverse=True)
+        if pdf_storage[user_id]:
+            recent_pdfs = sorted(pdf_storage[user_id].items(), key=lambda x: x[1]['upload_time'], reverse=True)
             if recent_pdfs:
                 recent_pdf = recent_pdfs[0][1]
                 pdf_type = recent_pdf['file_type']
                 pdf_name = recent_pdf['filename']
+                
+                # Check if this is a direct request for PDF content
+                direct_content_request = any(phrase in user_input.lower() for phrase in 
+                                          ["show me the pdf", "what's in the pdf", "content of the pdf",
+                                           "what does the document say", "what's in the document"])
                 
                 # Add a reminder about the uploaded PDF
                 pdf_reminder = f"Remember that the user has uploaded a PDF named '{pdf_name}'. "
@@ -580,7 +667,7 @@ def chat():
                 else:
                     pdf_reminder += "Please use the content of this document to help answer their question."
                     
-                conversations[username].append({"role": "system", "content": pdf_reminder})
+                conversations[user_id].append({"role": "system", "content": pdf_reminder})
                 
                 # If it's a small enough document, include relevant content again
                 processed_data = recent_pdf['processed_data']
@@ -589,14 +676,24 @@ def chat():
                         rubric_summary = "The rubric contains these grade criteria:\n"
                         for item in processed_data['tables']:
                             rubric_summary += f"- {item['grade']}: {item['description'][:100]}...\n"
-                        conversations[username].append({"role": "system", "content": rubric_summary})
-                    elif 'text' in processed_data and len(processed_data['text']) < 2000:
-                        conversations[username].append({"role": "system", "content": f"Document content (preview): {processed_data['text'][:1000]}..."})
+                        conversations[user_id].append({"role": "system", "content": rubric_summary})
+                    elif 'text' in processed_data:
+                        # For direct content requests, always include the content
+                        if direct_content_request:
+                            full_text = processed_data['text']
+                            content_msg = f"Here is the content of '{pdf_name}':\n\n{full_text[:2000]}"
+                            if len(full_text) > 2000:
+                                content_msg += f"\n\n[Document continues for {len(full_text) - 2000} more characters...]"
+                            conversations[user_id].append({"role": "system", "content": content_msg})
+                            print(f"Including full PDF content due to direct request")
+                        # For regular requests, include a preview if it's small enough
+                        elif len(processed_data['text']) < 2000:
+                            conversations[user_id].append({"role": "system", "content": f"Document content (preview): {processed_data['text'][:1000]}..."})
                 
                 print(f"Added PDF context reminder for: {pdf_name}")
     
     # Prepare messages for API, ensuring we stay within token limits
-    messages = trim_conversation_history(conversations[username])
+    messages = trim_conversation_history(conversations[user_id])
     
     try:
         # Make API call with conversation history
@@ -608,10 +705,17 @@ def chat():
         reply = response.choices[0].message.content
         
         # Add assistant's response to conversation history
-        conversations[username].append({"role": "assistant", "content": reply})
+        conversations[user_id].append({"role": "assistant", "content": reply})
         
         # Increment message count for the user
-        message_count[username]['count'] += 1
+        message_count[user_id]['count'] += 1
+        
+        # Also update message count in Firebase
+        firebase_auth.update_message_count(user_id)
+        
+        # Periodically save conversation to Firebase
+        if message_count[user_id]['count'] % 5 == 0:  # Save every 5 messages
+            firebase_auth.save_conversation(user_id, conversations[user_id])
         
         return jsonify({
             "reply": reply,
@@ -678,15 +782,18 @@ def trim_conversation_history(messages):
 @app.route("/reset", methods=["POST"])
 def reset_conversation():
     # Check if user is logged in
-    if "username" not in session:
+    if not is_logged_in():
         return jsonify({"reply": "Not authenticated"}), 401
     
-    username = session["username"]
+    user_id = get_user_id()
     
-    if username in conversations:
+    if user_id in conversations:
         # Keep the system prompt, remove all other messages
-        system_message = conversations[username][0]
-        conversations[username] = [system_message]
+        system_message = conversations[user_id][0]
+        conversations[user_id] = [system_message]
+        
+        # Start a new conversation in Firebase
+        firebase_auth.save_conversation(user_id, conversations[user_id])
         
     return jsonify({"status": "Conversation history reset successfully"})
 
@@ -724,11 +831,11 @@ def is_flashcard_request(text):
 
 @app.route("/generate_flashcards", methods=["POST"])
 def generate_flashcards():
-    if "username" not in session:
+    if not is_logged_in():
         return jsonify({"error": "Not authenticated"}), 401
     
     try:
-        username = session["username"]
+        username = get_username()
         data = request.get_json()
         if not data or "topic" not in data:
             return jsonify({"error": "No topic provided"}), 400
