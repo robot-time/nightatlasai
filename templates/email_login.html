@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Email Login - NightAtlas AI</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Inter", sans-serif;
+      background-color: #0f0f0f;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    
+    .auth-container {
+      background-color: #1a1a1a;
+      padding: 2rem;
+      border-radius: 10px;
+      width: 90%;
+      max-width: 400px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .auth-title {
+      text-align: center;
+      margin-bottom: 1.5rem;
+      font-size: 1.8rem;
+    }
+    
+    .form-group {
+      margin-bottom: 1.2rem;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+      opacity: 0.8;
+    }
+    
+    .form-group input {
+      width: 100%;
+      padding: 0.8rem;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background-color: #222;
+      color: white;
+      font-size: 1rem;
+      box-sizing: border-box;
+    }
+    
+    .form-group input:focus {
+      outline: none;
+      border-color: #4F57E2;
+    }
+    
+    .submit-button {
+      width: 100%;
+      padding: 0.8rem;
+      background-color: #4F57E2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      margin-top: 0.5rem;
+    }
+    
+    .submit-button:hover {
+      background-color: #3f46b3;
+    }
+    
+    .auth-footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      font-size: 0.9rem;
+      opacity: 0.7;
+    }
+    
+    .auth-footer a {
+      color: #7b83ff;
+      text-decoration: none;
+    }
+    
+    .flash-messages {
+      width: 90%;
+      max-width: 400px;
+      margin-bottom: 1rem;
+    }
+    
+    .flash-message {
+      padding: 0.8rem;
+      background-color: #ff4a4a;
+      border-radius: 6px;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    
+    .back-link {
+      display: block;
+      text-align: center;
+      margin-top: 1rem;
+      color: #7b83ff;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  {% if get_flashed_messages() %}
+  <div class="flash-messages">
+    {% for message in get_flashed_messages() %}
+      <div class="flash-message">{{ message }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  
+  <div class="auth-container">
+    <h1 class="auth-title">Email Login</h1>
+    
+    <form action="/email_login" method="post">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required autofocus>
+      </div>
+      
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required>
+      </div>
+      
+      <button type="submit" class="submit-button">Login</button>
+      
+      <a href="/login" class="back-link">← Back to login options</a>
+    </form>
+    
+    <div class="auth-footer">
+      Don't have an account? <a href="/register">Register</a>
+    </div>
+  </div>
+</body>
+</html> 

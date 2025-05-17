@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Register - NightAtlas AI</title>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
   <style>
     body {
       margin: 0;
@@ -33,49 +36,6 @@
       font-size: 1.8rem;
     }
     
-    .form-group {
-      margin-bottom: 1.2rem;
-    }
-    
-    .form-group label {
-      display: block;
-      margin-bottom: 0.5rem;
-      font-size: 0.9rem;
-      opacity: 0.8;
-    }
-    
-    .form-group input {
-      width: 100%;
-      padding: 0.8rem;
-      border: 1px solid #333;
-      border-radius: 6px;
-      background-color: #222;
-      color: white;
-      font-size: 1rem;
-      box-sizing: border-box;
-    }
-    
-    .form-group input:focus {
-      outline: none;
-      border-color: #4F57E2;
-    }
-    
-    .submit-button {
-      width: 100%;
-      padding: 0.8rem;
-      background-color: #4F57E2;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      font-size: 1rem;
-      cursor: pointer;
-      margin-top: 0.5rem;
-    }
-    
-    .submit-button:hover {
-      background-color: #3f46b3;
-    }
-    
     .auth-footer {
       text-align: center;
       margin-top: 1.5rem;
@@ -101,6 +61,72 @@
       text-align: center;
       font-size: 0.9rem;
     }
+
+    .google-btn {
+      width: 100%;
+      background-color: white;
+      color: #444;
+      padding: 0.8rem;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+    
+    .google-btn:hover {
+      background-color: #f2f2f2;
+    }
+    
+    .google-btn img {
+      margin-right: 10px;
+      width: 20px;
+      height: 20px;
+    }
+    
+    .divider {
+      display: flex;
+      align-items: center;
+      text-align: center;
+      margin: 1.5rem 0;
+      color: #888;
+    }
+    
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      border-bottom: 1px solid #444;
+    }
+    
+    .divider::before {
+      margin-right: 0.5rem;
+    }
+    
+    .divider::after {
+      margin-left: 0.5rem;
+    }
+    
+    .email-btn {
+      width: 100%;
+      padding: 0.8rem;
+      background-color: #4F57E2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+    }
+    
+    .email-btn:hover {
+      background-color: #3f46b3;
+    }
   </style>
 </head>
 <body>
@@ -115,28 +141,76 @@
   <div class="auth-container">
     <h1 class="auth-title">Create an Account</h1>
     
-    <form action="/register" method="post">
-      <div class="form-group">
-        <label for="username">Username</label>
-        <input type="text" id="username" name="username" required autofocus>
-      </div>
-      
-      <div class="form-group">
-        <label for="email">Email</label>
-        <input type="email" id="email" name="email" required>
-      </div>
-      
-      <div class="form-group">
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" required>
-      </div>
-      
-      <button type="submit" class="submit-button">Register</button>
-    </form>
+    <button id="googleSignIn" class="google-btn">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" alt="Google logo">
+      Sign up with Google
+    </button>
+    
+    <div class="divider">or</div>
+    
+    <a href="/email_register" class="email-btn">Sign up with Email</a>
     
     <div class="auth-footer">
       Already have an account? <a href="/login">Login</a>
     </div>
   </div>
+
+  <script>
+    // Firebase configuration - will be filled with actual values from server
+    const firebaseConfig = {
+      apiKey: "{{ config.apiKey }}",
+      authDomain: "{{ config.authDomain }}",
+      projectId: "{{ config.projectId }}",
+      storageBucket: "{{ config.storageBucket }}",
+      messagingSenderId: "{{ config.messagingSenderId }}",
+      appId: "{{ config.appId }}"
+    };
+
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    
+    // Google Sign-In provider
+    const googleProvider = new firebase.auth.GoogleAuthProvider();
+    
+    // Handle Google Sign-In
+    document.getElementById('googleSignIn').addEventListener('click', function() {
+      firebase.auth().signInWithPopup(googleProvider)
+        .then((result) => {
+          // Get the Google access token and ID token
+          const credential = result.credential;
+          // Use ID token for authentication with our backend
+          const token = credential.idToken;
+          // Get user info
+          const user = result.user;
+          
+          // Send the token to the server
+          return fetch('/google_auth', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+              token: token,
+              uid: user.uid,
+              email: user.email,
+              displayName: user.displayName || user.email.split('@')[0]
+            })
+          });
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            // Redirect to home page
+            window.location.href = data.redirect || '/';
+          } else {
+            alert('Authentication failed: ' + data.message);
+          }
+        })
+        .catch((error) => {
+          console.error(error);
+          alert('Authentication failed: ' + error.message);
+        });
+    });
+  </script>
 </body>
 </html>

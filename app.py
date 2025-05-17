@@ -340,69 +340,208 @@ def home():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
-    if request.method == "POST":
-        email = request.form["email"]
-        password = request.form["password"]
-        username = request.form["username"]
-        
-        # Register the user with Firebase
-        result = firebase_auth.register_user(email, password, username)
-        
-        if result['success']:
-            # Store user info in session
-            user = result['user']
-            session['user_id'] = user['localId']
-            session['email'] = email
-            session['username'] = username
-            session['token'] = user['idToken']
-            
-            # Initialize conversation history for the new user
-            user_id = user['localId']
-            if user_id not in conversations:
-                conversations[user_id] = [{"role": "system", "content": system_prompt}]
-            
-            return redirect(url_for("home"))
-        else:
-            # Registration failed
-            flash(result['message'])
-            return redirect(url_for("register"))
+    # For GET requests, render the register page with Firebase config
+    if request.method == "GET":
+        # Pass the Firebase config to the template
+        firebase_config = {
+            "apiKey": os.getenv("FIREBASE_API_KEY", ""),
+            "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN", ""),
+            "projectId": os.getenv("FIREBASE_PROJECT_ID", ""),
+            "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET", ""),
+            "messagingSenderId": os.getenv("FIREBASE_MESSAGING_SENDER_ID", ""),
+            "appId": os.getenv("FIREBASE_APP_ID", "")
+        }
+        return render_template("register.html", config=firebase_config)
     
-    return render_template("register.html")
+    # This POST handler is for backward compatibility
+    # Redirect to email_register
+    return redirect(url_for("email_register"))
+
+@app.route("/email_register", methods=["GET", "POST"])
+def email_register():
+    """Handle traditional email/password registration"""
+    if request.method == "GET":
+        return render_template("email_register.html")
+    
+    # Process form submission (same logic as the original register function)
+    email = request.form["email"]
+    password = request.form["password"]
+    username = request.form["username"]
+    
+    # Register the user with Firebase
+    result = firebase_auth.register_user(email, password, username)
+    
+    if result['success']:
+        # Store user info in session
+        user = result['user']
+        session['user_id'] = user['localId']
+        session['email'] = email
+        session['username'] = username
+        session['token'] = user['idToken']
+        
+        # Initialize conversation history for the new user
+        user_id = user['localId']
+        if user_id not in conversations:
+            conversations[user_id] = [{"role": "system", "content": system_prompt}]
+        
+        return redirect(url_for("home"))
+    else:
+        # Registration failed
+        flash(result['message'])
+        return redirect(url_for("email_register"))
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == "POST":
-        email = request.form["email"]
-        password = request.form["password"]
+    # For GET requests, render the login page with Firebase config
+    if request.method == "GET":
+        # Pass the Firebase config to the template
+        firebase_config = {
+            "apiKey": os.getenv("FIREBASE_API_KEY", ""),
+            "authDomain": os.getenv("FIREBASE_AUTH_DOMAIN", ""),
+            "projectId": os.getenv("FIREBASE_PROJECT_ID", ""),
+            "storageBucket": os.getenv("FIREBASE_STORAGE_BUCKET", ""),
+            "messagingSenderId": os.getenv("FIREBASE_MESSAGING_SENDER_ID", ""),
+            "appId": os.getenv("FIREBASE_APP_ID", "")
+        }
+        return render_template("login.html", config=firebase_config)
+    
+    # For POST requests, handle email/password login as before
+    email = request.form["email"]
+    password = request.form["password"]
+    
+    # Login the user with Firebase
+    result = firebase_auth.login_user(email, password)
+    
+    if result['success']:
+        # Store user info in session
+        user = result['user']
+        user_data = result.get('user_data', {})
         
-        # Login the user with Firebase
-        result = firebase_auth.login_user(email, password)
+        session['user_id'] = user['localId']
+        session['email'] = email
+        session['token'] = user['idToken']
+        
+        # Get username from user data or use email as fallback
+        username = user_data.get('username', email.split('@')[0])
+        session['username'] = username
+        
+        # Initialize conversation history if needed
+        user_id = user['localId']
+        if user_id not in conversations:
+            conversations[user_id] = [{"role": "system", "content": system_prompt}]
+        
+        return redirect(url_for("home"))
+    else:
+        # Login failed
+        flash(result['message'])
+        return redirect(url_for("login"))
+
+@app.route("/email_login", methods=["GET", "POST"])
+def email_login():
+    """Handle traditional email/password login"""
+    if request.method == "GET":
+        return render_template("email_login.html")
+    
+    # Process form submission (same logic as the original login function)
+    email = request.form["email"]
+    password = request.form["password"]
+    
+    # Login the user with Firebase
+    result = firebase_auth.login_user(email, password)
+    
+    if result['success']:
+        # Store user info in session
+        user = result['user']
+        user_data = result.get('user_data', {})
+        
+        session['user_id'] = user['localId']
+        session['email'] = email
+        session['token'] = user['idToken']
+        
+        # Get username from user data or use email as fallback
+        username = user_data.get('username', email.split('@')[0])
+        session['username'] = username
+        
+        # Initialize conversation history if needed
+        user_id = user['localId']
+        if user_id not in conversations:
+            conversations[user_id] = [{"role": "system", "content": system_prompt}]
+        
+        return redirect(url_for("home"))
+    else:
+        # Login failed
+        flash(result['message'])
+        return redirect(url_for("email_login"))
+
+@app.route("/google_auth", methods=["POST"])
+def google_auth():
+    """Handle Google authentication callback"""
+    if not request.is_json:
+        return jsonify({"success": False, "message": "Invalid request format"}), 400
+    
+    data = request.get_json()
+    token = data.get("token")
+    uid = data.get("uid")
+    email = data.get("email")
+    display_name = data.get("displayName")
+    
+    if not token:
+        return jsonify({"success": False, "message": "No token provided"}), 400
+    
+    try:
+        # Authenticate with Firebase using the Google token
+        result = firebase_auth.sign_in_with_google_token(token)
         
         if result['success']:
             # Store user info in session
             user = result['user']
             user_data = result.get('user_data', {})
             
-            session['user_id'] = user['localId']
-            session['email'] = email
-            session['token'] = user['idToken']
-            
-            # Get username from user data or use email as fallback
-            username = user_data.get('username', email.split('@')[0])
-            session['username'] = username
+            # Get user details - use data from client if server-side info isn't available
+            session['user_id'] = user.get('localId', uid)
+            session['email'] = user_data.get('email', email)
+            session['token'] = user.get('idToken', token)
+            session['username'] = user_data.get('username', display_name or email.split('@')[0])
             
             # Initialize conversation history if needed
-            user_id = user['localId']
+            user_id = session['user_id']
             if user_id not in conversations:
                 conversations[user_id] = [{"role": "system", "content": system_prompt}]
             
-            return redirect(url_for("home"))
+            return jsonify({"success": True, "redirect": url_for("home")})
         else:
-            # Login failed
-            flash(result['message'])
-            return redirect(url_for("login"))
-    
-    return render_template("login.html")
+            # Authentication failed - try creating a session directly with client-provided data
+            if uid and email:
+                # Create minimal session with client-provided data
+                session['user_id'] = uid
+                session['email'] = email
+                session['username'] = display_name or email.split('@')[0]
+                session['token'] = token
+                
+                # Initialize conversation history
+                if uid not in conversations:
+                    conversations[uid] = [{"role": "system", "content": system_prompt}]
+                
+                # Attempt to create user data in firestore if needed
+                if firebase_auth.firebase_admin_initialized:
+                    firebase_auth.db.collection('users').document(uid).set({
+                        'username': display_name or email.split('@')[0],
+                        'email': email,
+                        'created_at': firebase_auth.firestore.SERVER_TIMESTAMP,
+                        'message_count': 0,
+                        'message_limit': 25,
+                        'reset_time': 14400,
+                        'last_reset': firebase_auth.firestore.SERVER_TIMESTAMP
+                    }, merge=True)
+                
+                return jsonify({"success": True, "redirect": url_for("home")})
+            else:
+                # Authentication failed and no client-provided fallback data
+                return jsonify({"success": False, "message": result['message']})
+    except Exception as e:
+        # Handle unexpected errors
+        print(f"Error in Google authentication: {str(e)}")
+        return jsonify({"success": False, "message": f"Authentication error: {str(e)}"})
 
 @app.route("/logout")
 def logout():
