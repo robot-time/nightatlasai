@@ -15,8 +15,18 @@ import firebase_auth
 # Load environment variables from .env file
 load_dotenv()
 
-# Create OpenAI client instance
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Get OpenAI API key
+openai_api_key = os.getenv("OPENAI_API_KEY")
+if not openai_api_key:
+    print("WARNING: OPENAI_API_KEY not found in environment variables. AI features will not work.")
+
+try:
+    # Create OpenAI client instance
+    client = OpenAI(api_key=openai_api_key)
+    print("OpenAI client initialized successfully")
+except Exception as e:
+    print(f"ERROR initializing OpenAI client: {str(e)}")
+    client = None
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "default_secret_key_change_in_production")
@@ -558,172 +568,193 @@ def list_pdfs():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    # Check if user is logged in
-    if not is_logged_in():
-        return jsonify({"reply": "Not authenticated"}), 401
-    
-    user_id = get_user_id()
-    username = get_username()
-    user_input = request.json.get("message", "")
-    
-    # For debugging
-    print(f"User input: {user_input}")
-    
-    # Initialize user data if not exists
-    if user_id not in message_count:
-        message_count[user_id] = {'count': 0, 'timestamp': time.time()}
-    
-    if user_id not in conversations:
-        conversations[user_id] = [{"role": "system", "content": system_prompt}]
-    
-    # Check if the limit period has passed (reset counter)
-    now = time.time()
-    if now - message_count[user_id]['timestamp'] > reset_time:
-        message_count[user_id] = {'count': 0, 'timestamp': now}
-
-    # Check if the user has exceeded the message limit
-    remaining, time_until_reset = get_remaining_messages(user_id)
-    if remaining <= 0:
-        time_str = format_time_remaining(time_until_reset)
-        return jsonify({
-            "reply": f"You've reached your message limit. Please try again in {time_str}.",
-            "error": "rate_limit",
-            "time_until_reset": time_until_reset
-        }), 429
-
-    # Check if this is a flashcard request
-    if is_flashcard_request(user_input):
-        # Extract topic from the message
-        topic = user_input.replace("flashcard", "").replace("flash card", "").strip()
-        if topic:
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-4.1-mini",
-                    messages=[{
-                        "role": "user",
-                        "content": f"Extract the main topic from this flashcard request: {user_input}"
-                    }]
-                )
-                topic = response.choices[0].message.content.strip()
-            except:
-                pass
-        
-        return jsonify({
-            "reply": f"I'll create some flashcards about {topic} for you!",
-            "flashcard_request": True,
-            "topic": topic,
-            "remaining_messages": remaining - 1
-        })
-    
-    # Add the user message to conversation history
-    conversations[user_id].append({"role": "user", "content": user_input})
-    
-    # Check if question relates to PDFs
-    pdf_keywords = ['pdf', 'document', 'upload', 'file', 'content', 'read', 'understand', 'analyze', 
-                   'what does it say', 'paper', 'text', 'in the document']
-    pdf_related = any(keyword in user_input.lower() for keyword in pdf_keywords)
-    
-    # Advanced detection for document references without explicit keywords
-    if not pdf_related and user_id in pdf_storage:
-        # Check if user is referring to a document without using keywords
-        # For example: "What does paragraph 2 say?" or "Summarize this for me"
-        document_reference_phrases = [
-            "what does", "tell me about", "summarize", "explain", "analyze",
-            "paragraph", "page", "section", "chapter"
-        ]
-        
-        # Look for phrases that might imply referring to a document
-        if any(phrase in user_input.lower() for phrase in document_reference_phrases):
-            # Get the most recent PDF details
-            recent_pdfs = sorted(pdf_storage[user_id].items(), key=lambda x: x[1]['upload_time'], reverse=True)
-            if recent_pdfs and (time.time() - recent_pdfs[0][1]['upload_time']) < 300:  # Within 5 minutes
-                # It's likely they're referring to the recently uploaded PDF
-                pdf_related = True
-                print("Detected implicit PDF reference")
-    
-    # Check if this is a question related to uploaded rubrics
-    rubric_keywords = ['rubric', 'criteria', 'grade', 'assessment', 'requirement', 'band', 'score', 'mark']
-    is_rubric_question = any(keyword in user_input.lower() for keyword in rubric_keywords)
-    
-    # Reference PDF content if the question is related
-    if (pdf_related or is_rubric_question) and user_id in pdf_storage:
-        # Get the most recent PDF uploaded
-        if pdf_storage[user_id]:
-            recent_pdfs = sorted(pdf_storage[user_id].items(), key=lambda x: x[1]['upload_time'], reverse=True)
-            if recent_pdfs:
-                recent_pdf = recent_pdfs[0][1]
-                pdf_type = recent_pdf['file_type']
-                pdf_name = recent_pdf['filename']
-                
-                # Check if this is a direct request for PDF content
-                direct_content_request = any(phrase in user_input.lower() for phrase in 
-                                          ["show me the pdf", "what's in the pdf", "content of the pdf",
-                                           "what does the document say", "what's in the document"])
-                
-                # Add a reminder about the uploaded PDF
-                pdf_reminder = f"Remember that the user has uploaded a PDF named '{pdf_name}'. "
-                if pdf_type == 'rubric':
-                    pdf_reminder += "This is a grading rubric with assessment criteria that should be referenced when answering questions about grades or requirements."
-                else:
-                    pdf_reminder += "Please use the content of this document to help answer their question."
-                    
-                conversations[user_id].append({"role": "system", "content": pdf_reminder})
-                
-                # If it's a small enough document, include relevant content again
-                processed_data = recent_pdf['processed_data']
-                if processed_data:
-                    if pdf_type == 'rubric' and 'tables' in processed_data:
-                        rubric_summary = "The rubric contains these grade criteria:\n"
-                        for item in processed_data['tables']:
-                            rubric_summary += f"- {item['grade']}: {item['description'][:100]}...\n"
-                        conversations[user_id].append({"role": "system", "content": rubric_summary})
-                    elif 'text' in processed_data:
-                        # For direct content requests, always include the content
-                        if direct_content_request:
-                            full_text = processed_data['text']
-                            content_msg = f"Here is the content of '{pdf_name}':\n\n{full_text[:2000]}"
-                            if len(full_text) > 2000:
-                                content_msg += f"\n\n[Document continues for {len(full_text) - 2000} more characters...]"
-                            conversations[user_id].append({"role": "system", "content": content_msg})
-                            print(f"Including full PDF content due to direct request")
-                        # For regular requests, include a preview if it's small enough
-                        elif len(processed_data['text']) < 2000:
-                            conversations[user_id].append({"role": "system", "content": f"Document content (preview): {processed_data['text'][:1000]}..."})
-                
-                print(f"Added PDF context reminder for: {pdf_name}")
-    
-    # Prepare messages for API, ensuring we stay within token limits
-    messages = trim_conversation_history(conversations[user_id])
-    
     try:
-        # Make API call with conversation history
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=messages
-        )
+        # Check if user is logged in
+        if not is_logged_in():
+            print("Authentication error: User not logged in")
+            return jsonify({"reply": "Not authenticated"}), 401
         
-        reply = response.choices[0].message.content
+        user_id = get_user_id()
+        username = get_username()
+        user_input = request.json.get("message", "")
         
-        # Add assistant's response to conversation history
-        conversations[user_id].append({"role": "assistant", "content": reply})
+        # For debugging
+        print(f"User input: {user_input}")
+        print(f"User ID: {user_id}, Username: {username}")
         
-        # Increment message count for the user
-        message_count[user_id]['count'] += 1
+        # Initialize user data if not exists
+        if user_id not in message_count:
+            message_count[user_id] = {'count': 0, 'timestamp': time.time()}
         
-        # Also update message count in Firebase
-        firebase_auth.update_message_count(user_id)
+        if user_id not in conversations:
+            conversations[user_id] = [{"role": "system", "content": system_prompt}]
         
-        # Periodically save conversation to Firebase
-        if message_count[user_id]['count'] % 5 == 0:  # Save every 5 messages
-            firebase_auth.save_conversation(user_id, conversations[user_id])
-        
-        return jsonify({
-            "reply": reply,
-            "remaining_messages": remaining - 1
-        })
+        # Check if the limit period has passed (reset counter)
+        now = time.time()
+        if now - message_count[user_id]['timestamp'] > reset_time:
+            message_count[user_id] = {'count': 0, 'timestamp': now}
 
+        # Check if the user has exceeded the message limit
+        remaining, time_until_reset = get_remaining_messages(user_id)
+        if remaining <= 0:
+            time_str = format_time_remaining(time_until_reset)
+            return jsonify({
+                "reply": f"You've reached your message limit. Please try again in {time_str}.",
+                "error": "rate_limit",
+                "time_until_reset": time_until_reset
+            }), 429
+
+        # Check if this is a flashcard request
+        if is_flashcard_request(user_input):
+            # Extract topic from the message
+            topic = user_input.replace("flashcard", "").replace("flash card", "").strip()
+            if topic:
+                try:
+                    response = client.chat.completions.create(
+                        model="gpt-4.1-mini",
+                        messages=[{
+                            "role": "user",
+                            "content": f"Extract the main topic from this flashcard request: {user_input}"
+                        }]
+                    )
+                    topic = response.choices[0].message.content.strip()
+                except Exception as e:
+                    print(f"Error in flashcard topic extraction: {str(e)}")
+                    topic = user_input  # Fallback to original input
+            
+            return jsonify({
+                "reply": f"I'll create some flashcards about {topic} for you!",
+                "flashcard_request": True,
+                "topic": topic,
+                "remaining_messages": remaining - 1
+            })
+        
+        # Add the user message to conversation history
+        conversations[user_id].append({"role": "user", "content": user_input})
+        
+        # Check if question relates to PDFs
+        pdf_keywords = ['pdf', 'document', 'upload', 'file', 'content', 'read', 'understand', 'analyze', 
+                       'what does it say', 'paper', 'text', 'in the document']
+        pdf_related = any(keyword in user_input.lower() for keyword in pdf_keywords)
+        
+        # Advanced detection for document references without explicit keywords
+        if not pdf_related and user_id in pdf_storage:
+            # Check if user is referring to a document without using keywords
+            document_reference_phrases = [
+                "what does", "tell me about", "summarize", "explain", "analyze",
+                "paragraph", "page", "section", "chapter"
+            ]
+            
+            # Look for phrases that might imply referring to a document
+            if any(phrase in user_input.lower() for phrase in document_reference_phrases):
+                # Get the most recent PDF details
+                recent_pdfs = sorted(pdf_storage[user_id].items(), key=lambda x: x[1]['upload_time'], reverse=True)
+                if recent_pdfs and (time.time() - recent_pdfs[0][1]['upload_time']) < 300:  # Within 5 minutes
+                    # It's likely they're referring to the recently uploaded PDF
+                    pdf_related = True
+                    print("Detected implicit PDF reference")
+        
+        # Check if this is a question related to uploaded rubrics
+        rubric_keywords = ['rubric', 'criteria', 'grade', 'assessment', 'requirement', 'band', 'score', 'mark']
+        is_rubric_question = any(keyword in user_input.lower() for keyword in rubric_keywords)
+        
+        # Reference PDF content if the question is related
+        if (pdf_related or is_rubric_question) and user_id in pdf_storage:
+            # Get the most recent PDF uploaded
+            if pdf_storage[user_id]:
+                recent_pdfs = sorted(pdf_storage[user_id].items(), key=lambda x: x[1]['upload_time'], reverse=True)
+                if recent_pdfs:
+                    recent_pdf = recent_pdfs[0][1]
+                    pdf_type = recent_pdf['file_type']
+                    pdf_name = recent_pdf['filename']
+                    
+                    # Check if this is a direct request for PDF content
+                    direct_content_request = any(phrase in user_input.lower() for phrase in 
+                                              ["show me the pdf", "what's in the pdf", "content of the pdf",
+                                               "what does the document say", "what's in the document"])
+                    
+                    # Add a reminder about the uploaded PDF
+                    pdf_reminder = f"Remember that the user has uploaded a PDF named '{pdf_name}'. "
+                    if pdf_type == 'rubric':
+                        pdf_reminder += "This is a grading rubric with assessment criteria that should be referenced when answering questions about grades or requirements."
+                    else:
+                        pdf_reminder += "Please use the content of this document to help answer their question."
+                        
+                    conversations[user_id].append({"role": "system", "content": pdf_reminder})
+                    
+                    # If it's a small enough document, include relevant content again
+                    processed_data = recent_pdf['processed_data']
+                    if processed_data:
+                        if pdf_type == 'rubric' and 'tables' in processed_data:
+                            rubric_summary = "The rubric contains these grade criteria:\n"
+                            for item in processed_data['tables']:
+                                rubric_summary += f"- {item['grade']}: {item['description'][:100]}...\n"
+                            conversations[user_id].append({"role": "system", "content": rubric_summary})
+                        elif 'text' in processed_data:
+                            # For direct content requests, always include the content
+                            if direct_content_request:
+                                full_text = processed_data['text']
+                                content_msg = f"Here is the content of '{pdf_name}':\n\n{full_text[:2000]}"
+                                if len(full_text) > 2000:
+                                    content_msg += f"\n\n[Document continues for {len(full_text) - 2000} more characters...]"
+                                conversations[user_id].append({"role": "system", "content": content_msg})
+                                print(f"Including full PDF content due to direct request")
+                            # For regular requests, include a preview if it's small enough
+                            elif len(processed_data['text']) < 2000:
+                                conversations[user_id].append({"role": "system", "content": f"Document content (preview): {processed_data['text'][:1000]}..."})
+                    
+                    print(f"Added PDF context reminder for: {pdf_name}")
+        
+        # Prepare messages for API, ensuring we stay within token limits
+        messages = trim_conversation_history(conversations[user_id])
+        
+        print(f"Sending request to OpenAI with {len(messages)} messages")
+        
+        try:
+            # Make API call with conversation history
+            response = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=messages
+            )
+            
+            reply = response.choices[0].message.content
+            print(f"Received response from OpenAI: {reply[:100]}...")
+            
+            # Add assistant's response to conversation history
+            conversations[user_id].append({"role": "assistant", "content": reply})
+            
+            # Increment message count for the user
+            message_count[user_id]['count'] += 1
+            
+            # Also update message count in Firebase
+            firebase_auth.update_message_count(user_id)
+            
+            # Periodically save conversation to Firebase
+            if message_count[user_id]['count'] % 5 == 0:  # Save every 5 messages
+                firebase_auth.save_conversation(user_id, conversations[user_id])
+            
+            return jsonify({
+                "reply": reply,
+                "remaining_messages": remaining - 1
+            })
+
+        except Exception as e:
+            print(f"OpenAI API Error: {str(e)}")
+            # Provide a more specific error message based on the type of exception
+            error_message = str(e)
+            if "api_key" in error_message.lower():
+                return jsonify({"reply": "Sorry, there's an issue with the API key configuration. Please contact support."}), 500
+            elif "authentication" in error_message.lower():
+                return jsonify({"reply": "Authentication error with the AI service. Please try again later."}), 500
+            else:
+                return jsonify({"reply": f"Sorry, I encountered an error: {str(e)}"}), 500
+                
     except Exception as e:
-        return jsonify({"reply": f"Error: {str(e)}"}), 500
+        # Catch-all for any unexpected errors
+        print(f"Unexpected error in chat endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"reply": "Sorry, an unexpected error occurred. Please try again later."}), 500
 
 def trim_conversation_history(messages):
     """Trim conversation history to fit within token limits"""
@@ -928,6 +959,31 @@ Please provide the flashcards in this exact JSON format."""
     except Exception as e:
         print(f"General Error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api_status", methods=["GET"])
+def api_status():
+    """Endpoint to check API connectivity status"""
+    status = {
+        "app": "NightAtlas AI",
+        "status": "running",
+        "openai_configured": client is not None,
+        "firebase_auth_configured": hasattr(firebase_auth, 'auth') and firebase_auth.auth is not None,
+        "firebase_db_configured": hasattr(firebase_auth, 'db') and firebase_auth.db is not None,
+        "environment_vars": {
+            "openai_api_key": bool(os.getenv("OPENAI_API_KEY")),
+            "firebase_api_key": bool(os.getenv("FIREBASE_API_KEY")),
+            "firebase_service_account": (
+                bool(os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY")) or 
+                bool(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+            )
+        }
+    }
+    return jsonify(status)
+    
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Simple health check endpoint"""
+    return jsonify({"status": "ok"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
