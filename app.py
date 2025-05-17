@@ -6,7 +6,10 @@ import time
 import tiktoken
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 import json
+import PyPDF2
+import re
 
 # Load environment variables from .env file
 load_dotenv()
@@ -16,6 +19,19 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "default_secret_key_change_in_production")
+
+# Configure file uploads
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'pdf'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload size
+
+# Create upload directory if it doesn't exist
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Load the system prompt from a file
 with open("prompt.txt", "r", encoding="utf-8") as f:
@@ -30,12 +46,188 @@ message_count = {}
 message_limit = 25  # Set your desired message limit here
 reset_time = 14400  # Reset counter every 4 hours (14400 seconds)
 
+# In-memory storage for uploaded PDFs and their extracted content
+pdf_storage = {}
+
 # Maximum token limit for conversation context
 MAX_TOKENS = 2500  # Adjust based on your model's context window
 
 # Initialize tokenizer for the model
 # Since tiktoken doesn't recognize 'gpt-4.1-mini', we use 'o200k_base' encoding
 tokenizer = tiktoken.get_encoding("o200k_base")
+
+def extract_text_from_pdf(file_path):
+    """Extract text content from a PDF file"""
+    text = ""
+    try:
+        with open(file_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            for page_num in range(len(pdf_reader.pages)):
+                page = pdf_reader.pages[page_num]
+                text += page.extract_text() + "\n\n"
+        return text
+    except Exception as e:
+        print(f"Error extracting text from PDF: {str(e)}")
+        return None
+
+def extract_tables_from_text(text):
+    """
+    Attempts to identify and extract tables from text by looking for structured patterns
+    This is a simplified approach and may need refinement based on specific rubric formats
+    """
+    # Store potential table rows
+    potential_table_rows = []
+    
+    # Try different pattern matching approaches
+    
+    # Approach 1: Look for grade band patterns (e.g., "A: 90-100" or "Excellent: Clear evidence of...")
+    grade_pattern = r'(?:^|\n)([A-F][+\-]?|[0-9]{1,2}[\-][0-9]{1,2}|Excellent|Good|Satisfactory|Pass|Fail|[A-Z][a-z]*)\s*[:|-]\s*(.+?)(?=\n[A-F][+\-]?|[0-9]{1,2}[\-][0-9]{1,2}|Excellent|Good|Satisfactory|Pass|Fail|[A-Z][a-z]*\s*[:|-]|\Z)'
+    matches = re.finditer(grade_pattern, text, re.DOTALL)
+    
+    for match in matches:
+        grade = match.group(1).strip()
+        description = match.group(2).strip()
+        potential_table_rows.append({"grade": grade, "description": description})
+    
+    # Approach 2: Look for tabular data with grade bands in separate columns
+    # This pattern tries to identify rows that look like tables with multiple columns
+    if not potential_table_rows:
+        # Look for lines with multiple tab or multiple space separations
+        lines = text.split('\n')
+        table_start = False
+        current_table = []
+        
+        for line in lines:
+            # Skip empty lines
+            if not line.strip():
+                continue
+                
+            # Check if this might be a table row (contains multiple tabs or 3+ spaces in sequence)
+            if '\t' in line or '   ' in line:
+                # Could be a table row
+                if not table_start:
+                    table_start = True
+                    
+                # Split by tabs or multiple spaces
+                if '\t' in line:
+                    columns = [col.strip() for col in line.split('\t')]
+                else:
+                    columns = [col.strip() for col in re.split(r'\s{3,}', line)]
+                    
+                # If we have at least 2 columns and first looks like a grade marker
+                if len(columns) >= 2:
+                    first_col = columns[0].strip()
+                    # Check if first column looks like a grade marker
+                    if (re.match(r'^[A-F][+\-]?$', first_col) or 
+                        re.match(r'^[0-9]{1,2}[\-][0-9]{1,2}$', first_col) or
+                        first_col in ['Excellent', 'Good', 'Satisfactory', 'Pass', 'Fail']):
+                        
+                        # Join the rest of the columns as the description
+                        description = ' '.join(columns[1:]).strip()
+                        potential_table_rows.append({"grade": first_col, "description": description})
+            else:
+                # Reset table detection if we've already started a table
+                table_start = False
+    
+    # Approach 3: Look for numbered criteria with descriptions
+    if not potential_table_rows:
+        numbered_pattern = r'(?:^|\n)(\d+\.)\s+(.+?)(?=\n\d+\.|\Z)'
+        matches = re.finditer(numbered_pattern, text, re.DOTALL)
+        
+        for match in matches:
+            grade = match.group(1).strip()
+            description = match.group(2).strip()
+            potential_table_rows.append({"grade": grade, "description": description})
+    
+    return potential_table_rows
+
+def analyze_pdf_content(file_path, file_type="generic"):
+    """
+    Analyze the PDF content based on the specified file type
+    file_type options: "generic", "rubric"
+    """
+    text = extract_text_from_pdf(file_path)
+    if not text:
+        return {"error": "Failed to extract text from PDF"}
+    
+    # Special handling for rubrics
+    if file_type == "rubric":
+        tables = extract_tables_from_text(text)
+        
+        # If we couldn't extract tables with our pattern-based approach, try using AI
+        if not tables:
+            tables = extract_rubric_with_ai(text)
+            
+        if tables:
+            return {
+                "text": text,
+                "tables": tables,
+                "summary": f"Extracted {len(tables)} grading criteria from rubric"
+            }
+    
+    # For generic PDFs, just return the text
+    return {
+        "text": text,
+        "summary": f"Extracted {len(text.split())} words from PDF"
+    }
+
+def extract_rubric_with_ai(text):
+    """
+    Use OpenAI to extract rubric data when pattern-based approaches don't work
+    """
+    try:
+        # Create a prompt for the AI to extract rubric data
+        prompt = f"""
+        Extract grading criteria from the following rubric text. 
+        For each grade band or criterion, identify:
+        1. The grade label/band (e.g., A, B, 90-100, Excellent, etc.)
+        2. The description or requirements for that grade
+
+        Format the output as a JSON array of objects with 'grade' and 'description' fields.
+        
+        Text:
+        {text[:2000]}  # Limit text length to avoid exceeding token limits
+        """
+        
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",  # Using the same model as the chat
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3  # Lower temperature for more deterministic output
+        )
+        
+        response_text = response.choices[0].message.content
+        
+        # Try to parse the JSON response
+        try:
+            data = json.loads(response_text)
+            if isinstance(data, dict) and "criteria" in data:
+                return data["criteria"]
+            elif "rows" in data:
+                return data["rows"]
+            elif isinstance(data, list):
+                return data
+            else:
+                # Try to extract an array from the response
+                for key, value in data.items():
+                    if isinstance(value, list) and len(value) > 0:
+                        if isinstance(value[0], dict) and "grade" in value[0] and "description" in value[0]:
+                            return value
+                
+                # If we can't find a properly structured array, create one from the data
+                result = []
+                for key, value in data.items():
+                    if isinstance(value, str):
+                        result.append({"grade": key, "description": value})
+                return result
+                
+        except json.JSONDecodeError:
+            # If JSON parsing fails, try to extract data with regex
+            print(f"AI returned non-JSON output: {response_text}")
+            return []
+            
+    except Exception as e:
+        print(f"Error using AI to extract rubric: {str(e)}")
+        return []
 
 def num_tokens_from_messages(messages):
     """Calculate the number of tokens in a message list"""
@@ -131,6 +323,148 @@ def logout():
     session.pop("username", None)
     return redirect(url_for("login"))
 
+@app.route("/upload_pdf", methods=["POST"])
+def upload_pdf():
+    """Handle PDF uploads and process them"""
+    if "username" not in session:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    username = session["username"]
+    
+    # Check if the post request has the file part
+    if 'pdf_file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+        
+    file = request.files['pdf_file']
+    
+    # If user does not select file, browser also submits an empty part without filename
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+        
+    if file and allowed_file(file.filename):
+        # Secure the filename and save the file
+        filename = secure_filename(file.filename)
+        file_id = str(uuid.uuid4())
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{file_id}_{filename}")
+        file.save(file_path)
+        
+        # Get the file type from form data
+        file_type = request.form.get('file_type', 'generic')
+        
+        # Process the PDF based on its type
+        pdf_data = analyze_pdf_content(file_path, file_type)
+        
+        # Store the processed data
+        if username not in pdf_storage:
+            pdf_storage[username] = {}
+            
+        pdf_storage[username][file_id] = {
+            "filename": filename,
+            "file_path": file_path,
+            "file_type": file_type,
+            "processed_data": pdf_data,
+            "upload_time": time.time()
+        }
+        
+        # Add context to the conversation for this PDF
+        if username in conversations:
+            if file_type == "rubric":
+                # Format rubric information for the AI
+                rubric_info = "I've uploaded a grading rubric with the following criteria:\n\n"
+                for item in pdf_data.get("tables", []):
+                    rubric_info += f"- {item['grade']}: {item['description']}\n"
+                
+                # Add this as a user message in the conversation
+                conversations[username].append({"role": "user", "content": rubric_info})
+                
+                # Add a system message to guide the AI
+                system_guidance = ("Remember to reference this rubric when providing feedback or "
+                                  "guidance on assignments. Consider the specific requirements for "
+                                  "each grade band when answering questions about assessment criteria.")
+                conversations[username].append({"role": "system", "content": system_guidance})
+            else:
+                # For generic PDFs - handle large documents by chunking
+                full_text = pdf_data.get("text", "")
+                
+                # Add a basic summary
+                pdf_context = f"I've uploaded a PDF document named '{filename}'. "
+                pdf_context += f"It contains approximately {len(full_text.split())} words."
+                conversations[username].append({"role": "user", "content": pdf_context})
+                
+                # For larger documents, summarize content to avoid token limits
+                if len(full_text.split()) > 1000:
+                    try:
+                        # Use the API to generate a summary of the PDF content
+                        summary_prompt = f"Please summarize the key points from this document in 2-3 paragraphs:\n\n{full_text[:3000]}..."
+                        
+                        summary_response = client.chat.completions.create(
+                            model="gpt-4.1-mini",
+                            messages=[{"role": "user", "content": summary_prompt}],
+                            temperature=0.3
+                        )
+                        
+                        summary = summary_response.choices[0].message.content
+                        
+                        # Add the summary to the conversation
+                        system_note = "I've analyzed the document and here's a summary of its content:"
+                        conversations[username].append({"role": "system", "content": system_note})
+                        conversations[username].append({"role": "assistant", "content": summary})
+                        
+                    except Exception as e:
+                        print(f"Error generating PDF summary: {str(e)}")
+        
+        return jsonify({
+            "success": True,
+            "file_id": file_id,
+            "filename": filename,
+            "summary": pdf_data.get("summary", "PDF processed successfully"),
+            "file_type": file_type
+        })
+    
+    return jsonify({"error": "File type not allowed"}), 400
+
+@app.route("/pdf_content/<file_id>", methods=["GET"])
+def get_pdf_content(file_id):
+    """Retrieve processed content of a specific PDF"""
+    if "username" not in session:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    username = session["username"]
+    
+    if username not in pdf_storage or file_id not in pdf_storage[username]:
+        return jsonify({"error": "PDF not found"}), 404
+    
+    pdf_data = pdf_storage[username][file_id]
+    
+    return jsonify({
+        "filename": pdf_data["filename"],
+        "file_type": pdf_data["file_type"],
+        "content": pdf_data["processed_data"]
+    })
+
+@app.route("/list_pdfs", methods=["GET"])
+def list_pdfs():
+    """List all PDFs uploaded by the current user"""
+    if "username" not in session:
+        return jsonify({"error": "Not authenticated"}), 401
+    
+    username = session["username"]
+    
+    if username not in pdf_storage:
+        return jsonify({"pdfs": []})
+    
+    pdfs = []
+    for file_id, pdf_data in pdf_storage[username].items():
+        pdfs.append({
+            "file_id": file_id,
+            "filename": pdf_data["filename"],
+            "file_type": pdf_data["file_type"],
+            "upload_time": pdf_data["upload_time"],
+            "summary": pdf_data["processed_data"].get("summary", "")
+        })
+    
+    return jsonify({"pdfs": pdfs})
+
 @app.route("/chat", methods=["POST"])
 def chat():
     # Check if user is logged in
@@ -187,6 +521,26 @@ def chat():
     
     # Add the user message to conversation history
     conversations[username].append({"role": "user", "content": user_input})
+    
+    # Check if this is a question related to uploaded rubrics
+    rubric_keywords = ['rubric', 'criteria', 'grade', 'assessment', 'requirement', 'band', 'score', 'mark']
+    is_rubric_question = any(keyword in user_input.lower() for keyword in rubric_keywords)
+    
+    # If user is asking about rubrics and has uploaded rubric PDFs, include the context
+    if is_rubric_question and username in pdf_storage:
+        rubric_pdfs = [pdf for pdf_id, pdf in pdf_storage[username].items() 
+                      if pdf['file_type'] == 'rubric']
+        
+        if rubric_pdfs:
+            # Find the most recent rubric
+            latest_rubric = max(rubric_pdfs, key=lambda x: x['upload_time'])
+            
+            # Add a system message with rubric details to help the AI give better responses
+            system_rubric_guidance = "The user has previously uploaded a grading rubric. "
+            system_rubric_guidance += "When responding to this question about assessment criteria, "
+            system_rubric_guidance += "refer to the rubric details provided earlier in the conversation."
+            
+            conversations[username].append({"role": "system", "content": system_rubric_guidance})
     
     # Prepare messages for API, ensuring we stay within token limits
     messages = trim_conversation_history(conversations[username])

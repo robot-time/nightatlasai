@@ -531,6 +531,172 @@
       font-weight: bold;
       color: #666;
     }
+
+    /* PDF Upload Panel Styles */
+    .pdf-upload-panel {
+      position: fixed;
+      right: -400px;
+      top: 0;
+      width: 400px;
+      height: 100vh;
+      background: #1a1a1a;
+      box-shadow: -2px 0 10px rgba(0, 0, 0, 0.3);
+      transition: right 0.3s ease;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .pdf-upload-panel.open {
+      right: 0;
+    }
+
+    .panel-header {
+      padding: 1.2rem;
+      border-bottom: 1px solid #333;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #222;
+    }
+
+    .panel-header h3 {
+      margin: 0;
+      font-size: 1.2rem;
+      color: #fff;
+    }
+
+    .panel-header button {
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 1.5rem;
+      cursor: pointer;
+      padding: 0.5rem;
+      border-radius: 50%;
+      transition: background-color 0.3s ease;
+    }
+
+    .panel-header button:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .panel-content {
+      flex: 1;
+      padding: 1.2rem;
+      overflow-y: auto;
+    }
+
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      color: #fff;
+      font-size: 0.9rem;
+    }
+
+    .form-group input[type="file"] {
+      width: 100%;
+      padding: 0.5rem;
+      background: #2a2a2a;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #fff;
+    }
+
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .radio-group label {
+      margin-left: 0.5rem;
+      display: inline;
+    }
+
+    .upload-button {
+      display: block;
+      width: 100%;
+      padding: 0.8rem;
+      background: #4F57E2;
+      border: none;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: 500;
+      transition: all 0.3s ease;
+    }
+
+    .upload-button:hover {
+      background: #3f46b3;
+    }
+
+    .upload-status {
+      margin-top: 1rem;
+      padding: 0.8rem;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+
+    .upload-status.success {
+      background: rgba(39, 174, 96, 0.2);
+      color: #2ecc71;
+    }
+
+    .upload-status.error {
+      background: rgba(231, 76, 60, 0.2);
+      color: #e74c3c;
+    }
+
+    .pdfs-list {
+      margin-top: 2rem;
+    }
+
+    .pdfs-list h4 {
+      margin: 0 0 0.8rem 0;
+      color: #fff;
+      font-size: 1rem;
+    }
+
+    .pdfs-list ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .pdfs-list li {
+      padding: 0.8rem;
+      background: #2a2a2a;
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    .pdfs-list .pdf-name {
+      font-weight: bold;
+      margin-bottom: 0.3rem;
+    }
+
+    .pdfs-list .pdf-type {
+      font-size: 0.8rem;
+      opacity: 0.7;
+    }
+
+    .pdf-icon {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      background: #4F57E2;
+      border-radius: 2px;
+      margin-right: 0.5rem;
+      position: relative;
+      top: 2px;
+    }
   </style>
 </head>
 <body>
@@ -540,10 +706,43 @@
       NightAtlas <span class="username-display">{{ username }}</span>
     </div>
     <div class="header-actions">
+      <button onclick="togglePdfUpload()">Upload PDF</button>
       <button onclick="resetConversation()">New Chat</button>
       <button onclick="window.location.href='/logout'">Logout</button>
     </div>
   </header>
+
+  <!-- PDF Upload Panel -->
+  <div class="pdf-upload-panel" id="pdfUploadPanel">
+    <div class="panel-header">
+      <h3>Upload PDF</h3>
+      <button onclick="togglePdfUpload()">×</button>
+    </div>
+    <div class="panel-content">
+      <form id="pdfUploadForm" enctype="multipart/form-data">
+        <div class="form-group">
+          <label for="pdfFile">Select PDF file:</label>
+          <input type="file" id="pdfFile" name="pdf_file" accept=".pdf" required>
+        </div>
+        <div class="form-group">
+          <label>File type:</label>
+          <div class="radio-group">
+            <input type="radio" id="typeGeneric" name="file_type" value="generic" checked>
+            <label for="typeGeneric">General Document</label>
+            
+            <input type="radio" id="typeRubric" name="file_type" value="rubric">
+            <label for="typeRubric">Grading Rubric</label>
+          </div>
+        </div>
+        <button type="submit" class="upload-button">Upload</button>
+      </form>
+      <div id="uploadStatus" class="upload-status"></div>
+      <div id="pdfsList" class="pdfs-list">
+        <h4>Your PDFs</h4>
+        <ul id="pdfsListItems"></ul>
+      </div>
+    </div>
+  </div>
 
   <!-- Flashcard Panel -->
   <div class="flashcard-panel" id="flashcardPanel">
@@ -718,6 +917,12 @@
       </svg>
     `;
 
+    const pdfIcon = `
+      <svg viewBox="0 0 24 24" width="24" height="24">
+        <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v14zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm12 6V9c0-.55-.45-1-1-1h-2v5h2c.55 0 1-.45 1-1zm-2-3h1v3h-1V9z" fill="#ffffff"/>
+      </svg>
+    `;
+
     function appendMessage(text, sender, isFlashcardResponse = false) {
       const chat = document.getElementById("chat");
       const msg = document.createElement("div");
@@ -864,6 +1069,131 @@
       const randomIndex = Math.floor(Math.random() * welcomeMessages.length);
       welcomeElement.textContent = welcomeMessages[randomIndex];
     }
+
+    // PDF Upload Functions
+    function togglePdfUpload() {
+      const panel = document.getElementById('pdfUploadPanel');
+      panel.classList.toggle('open');
+      
+      // Load PDFs list when panel is opened
+      if (panel.classList.contains('open')) {
+        loadPdfsList();
+      }
+    }
+
+    async function loadPdfsList() {
+      try {
+        const response = await fetch('/list_pdfs');
+        const data = await response.json();
+        
+        const listElement = document.getElementById('pdfsListItems');
+        listElement.innerHTML = '';
+        
+        if (data.pdfs.length === 0) {
+          listElement.innerHTML = '<li>No PDFs uploaded yet</li>';
+          return;
+        }
+        
+        data.pdfs.forEach(pdf => {
+          const li = document.createElement('li');
+          const timestamp = new Date(pdf.upload_time * 1000);
+          const timeString = timestamp.toLocaleString();
+          
+          li.innerHTML = `
+            <div class="pdf-name">${pdfIcon} ${pdf.filename}</div>
+            <div class="pdf-type">Type: ${pdf.file_type === 'rubric' ? 'Grading Rubric' : 'General Document'}</div>
+            <div class="pdf-date">Uploaded: ${timeString}</div>
+            <div class="pdf-summary">${pdf.summary}</div>
+          `;
+          
+          listElement.appendChild(li);
+        });
+      } catch (error) {
+        console.error('Error loading PDFs list:', error);
+      }
+    }
+
+    async function showRubricDetails(fileId) {
+      try {
+        const response = await fetch(`/pdf_content/${fileId}`);
+        const data = await response.json();
+        
+        if (data.content && data.content.tables && data.content.tables.length > 0) {
+          // Create a markdown table for the rubric
+          let markdown = "**Rubric Grading Criteria:**\n\n";
+          markdown += "| Grade/Band | Requirements |\n";
+          markdown += "|------------|-------------|\n";
+          
+          data.content.tables.forEach(item => {
+            // Clean up the description text for better display
+            const description = item.description
+              .replace(/\n/g, ' ') // Replace newlines with spaces
+              .replace(/\s{2,}/g, ' '); // Replace multiple spaces with a single space
+              
+            markdown += `| **${item.grade}** | ${description} |\n`;
+          });
+          
+          // Display the rubric to the user as a bot message
+          appendMessage(markdown, "bot");
+          
+          // Add a helpful prompt for the user
+          appendMessage("You can now ask me questions about the requirements for specific grades based on this rubric.", "bot");
+        }
+      } catch (error) {
+        console.error('Error getting rubric details:', error);
+      }
+    }
+
+    // Set up PDF upload form handling
+    document.addEventListener('DOMContentLoaded', () => {
+      const uploadForm = document.getElementById('pdfUploadForm');
+      
+      if (uploadForm) {
+        uploadForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          
+          const formData = new FormData(uploadForm);
+          const statusElement = document.getElementById('uploadStatus');
+          
+          statusElement.textContent = 'Uploading...';
+          statusElement.className = 'upload-status';
+          
+          try {
+            const response = await fetch('/upload_pdf', {
+              method: 'POST',
+              body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              statusElement.textContent = `Successfully uploaded ${result.filename} (${result.summary})`;
+              statusElement.className = 'upload-status success';
+              uploadForm.reset();
+              
+              // Reload the PDFs list
+              loadPdfsList();
+              
+              // Let the user know that the PDF content is now available to the AI
+              const fileType = result.file_type === 'rubric' ? 'grading rubric' : 'document';
+              appendMessage(`I've uploaded a ${fileType} called "${result.filename}". The AI can now reference this content in our conversation.`, "user");
+              
+              // If this is a rubric, also display a summary of the extracted criteria
+              if (result.file_type === 'rubric') {
+                showRubricDetails(result.file_id);
+              }
+            } else {
+              statusElement.textContent = result.error || 'Upload failed';
+              statusElement.className = 'upload-status error';
+            }
+          } catch (error) {
+            console.error('Error:', error);
+            statusElement.textContent = 'Upload failed: ' + error.message;
+            statusElement.className = 'upload-status error';
+          }
+        });
+      }
+    });
   </script>
 </body>
 </html>
