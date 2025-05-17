@@ -273,26 +273,36 @@ def num_tokens_from_messages(messages):
 
 def get_remaining_messages(user_id):
     """Get the number of remaining messages and time until reset"""
+    # Get default message limit from global variable
+    global message_limit
+    
     # Try to get user data from Firebase first
     user_data = firebase_auth.get_user_data(user_id)
     
     # If we have user data from Firebase, use those limits
     if user_data:
-        message_limit = user_data.get('message_limit', 25)
-        reset_time_seconds = user_data.get('reset_time', 14400)  # Default 4 hours
+        user_message_limit = user_data.get('message_limit', message_limit)
+        reset_time_seconds = user_data.get('reset_time', reset_time)  # Default 4 hours
         current_count = user_data.get('message_count', 0)
         last_reset = user_data.get('last_reset', 0)
         
-        # If last_reset is a Firestore timestamp, convert to epoch seconds
-        if hasattr(last_reset, 'seconds'):
-            last_reset = last_reset.seconds
+        # Handle Firestore DatetimeWithNanoseconds objects
+        if hasattr(last_reset, 'timestamp'):
+            # Convert Firestore timestamp to epoch seconds
+            try:
+                last_reset_epoch = last_reset.timestamp()
+            except Exception as e:
+                print(f"Error converting timestamp: {str(e)}")
+                last_reset_epoch = 0
+        else:
+            last_reset_epoch = last_reset
             
         # Check if it's time to reset the counter
-        time_elapsed = time.time() - last_reset
+        time_elapsed = time.time() - last_reset_epoch
         if time_elapsed >= reset_time_seconds:
-            return message_limit, 0
+            return user_message_limit, 0
         
-        remaining = message_limit - current_count
+        remaining = user_message_limit - current_count
         time_until_reset = reset_time_seconds - time_elapsed
         
         return remaining, time_until_reset
@@ -711,35 +721,11 @@ def chat():
         print(f"Sending request to OpenAI with {len(messages)} messages")
         
         try:
-            # Check if client is initialized
-            if client is None:
-                return jsonify({
-                    "reply": "The AI service is not available at the moment. Please check that the OpenAI API key is configured correctly.",
-                    "error": "openai_not_configured"
-                }), 500
-            
-            # Try different models in case the preferred one isn't available
-            models_to_try = ["gpt-4.1-mini", "gpt-4o-mini", "gpt-3.5-turbo"]
-            response = None
-            last_error = None
-            
-            for model in models_to_try:
-                try:
-                    # Make API call with conversation history
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=messages
-                    )
-                    print(f"Successfully used model: {model}")
-                    break
-                except Exception as e:
-                    last_error = e
-                    print(f"Failed to use model {model}: {str(e)}")
-                    continue
-            
-            # If all models failed
-            if response is None:
-                raise last_error or Exception("All models failed")
+            # Make API call with conversation history
+            response = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=messages
+            )
             
             reply = response.choices[0].message.content
             print(f"Received response from OpenAI: {reply[:100]}...")
@@ -983,52 +969,6 @@ Please provide the flashcards in this exact JSON format."""
     except Exception as e:
         print(f"General Error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
-
-@app.route("/test_openai", methods=["GET"])
-def test_openai_connection():
-    """Endpoint to test OpenAI API connectivity"""
-    try:
-        if client is None:
-            return jsonify({
-                "success": False,
-                "error": "OpenAI client not initialized",
-                "api_key_set": bool(os.getenv("OPENAI_API_KEY"))
-            }), 500
-            
-        # Try a simple API call
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[{"role": "user", "content": "Say hello"}],
-            max_tokens=10
-        )
-        
-        return jsonify({
-            "success": True,
-            "response": response.choices[0].message.content,
-            "model": "gpt-4.1-mini"
-        })
-        
-    except Exception as e:
-        error_message = str(e)
-        error_type = type(e).__name__
-        
-        return jsonify({
-            "success": False,
-            "error": error_message,
-            "error_type": error_type,
-            "available_models": get_available_models()
-        }), 500
-
-def get_available_models():
-    """Try to fetch available models"""
-    try:
-        if client is None:
-            return ["Client not initialized"]
-        
-        models = client.models.list()
-        return [model.id for model in models.data]
-    except Exception as e:
-        return [f"Error listing models: {str(e)}"]
 
 @app.route("/api_status", methods=["GET"])
 def api_status():
