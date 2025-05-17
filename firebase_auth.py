@@ -6,17 +6,48 @@ from firebase_admin import credentials, firestore, auth as admin_auth
 from firebase_config import config, FIREBASE_SERVICE_ACCOUNT_KEY
 
 # Initialize Firebase Admin (for backend operations)
-if os.path.exists(FIREBASE_SERVICE_ACCOUNT_KEY):
-    cred = credentials.Certificate(FIREBASE_SERVICE_ACCOUNT_KEY)
-    firebase_admin.initialize_app(cred)
-    db = firestore.client()
-else:
-    print("Warning: Firebase service account key not found. Admin SDK features will be unavailable.")
+firebase_admin_initialized = False
+
+# Try to initialize Firebase Admin with service account key
+try:
+    # Option 1: Direct path to service account JSON file
+    if os.path.exists(FIREBASE_SERVICE_ACCOUNT_KEY):
+        cred = credentials.Certificate(FIREBASE_SERVICE_ACCOUNT_KEY)
+        firebase_admin.initialize_app(cred)
+        firebase_admin_initialized = True
+        print(f"Firebase Admin initialized with service account file: {FIREBASE_SERVICE_ACCOUNT_KEY}")
+    
+    # Option 2: Service account credentials as JSON string in environment variable
+    elif os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"):
+        service_account_info = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
+        cred = credentials.Certificate(service_account_info)
+        firebase_admin.initialize_app(cred)
+        firebase_admin_initialized = True
+        print("Firebase Admin initialized with service account JSON from environment variable")
+    
+    else:
+        print("Warning: Firebase service account credentials not found. Admin SDK features will be unavailable.")
+        firebase_admin_initialized = False
+        
+    # Initialize Firestore if admin was initialized
+    if firebase_admin_initialized:
+        db = firestore.client()
+    else:
+        db = None
+        
+except Exception as e:
+    print(f"Error initializing Firebase Admin: {str(e)}")
     db = None
+    firebase_admin_initialized = False
 
 # Initialize Pyrebase (for authentication)
-firebase = pyrebase.initialize_app(config)
-auth = firebase.auth()
+try:
+    firebase = pyrebase.initialize_app(config)
+    auth = firebase.auth()
+    print("Firebase Authentication initialized successfully")
+except Exception as e:
+    print(f"Error initializing Firebase Authentication: {str(e)}")
+    auth = None
 
 # User Authentication Functions
 def register_user(email, password, username):

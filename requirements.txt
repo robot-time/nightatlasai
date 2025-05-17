@@ -6,3 +6,4 @@ werkzeug
 PyPDF2
 firebase-admin
 pyrebase4
+gunicorn
